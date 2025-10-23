@@ -19,7 +19,13 @@ common warnings
 executable transmission
     import:           warnings
     main-is:          Main.hs
-    other-modules:       Paths_transmission
+    other-modules:    
+        Paths_transmission,
+        MainMenu,
+        Game,
+        GameState,
+        Options,
+        Utils
     -- other-extensions:
     build-depends:
         base,

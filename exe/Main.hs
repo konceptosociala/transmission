@@ -1,95 +1,50 @@
 {-# LANGUAGE PatternSynonyms #-}
-
 module Main where
 
-import Paths_transmission (getDataFileName)
-import Raylib.Util (withWindow, whileWindowOpen_, managed, mode3D, drawing)
-import Raylib.Core (clearBackground, isKeyPressed)
-import Raylib.Core.Camera (updateCamera)
-import Raylib.Types (CameraMode(CameraModeOrbital, CameraModeFirstPerson), Camera3D (Camera3D), pattern Vector3, CameraProjection (CameraPerspective), Color (Color), KeyboardKey (KeyA, KeyF3))
-import Raylib.Core.Models (drawModel, loadModel)
+import Raylib.Util (withWindow, whileWindowOpen_, mode3D, drawing)
+import Raylib.Core (clearBackground, disableCursor, toggleFullscreen, getRenderWidth, getRenderHeight)
+import Raylib.Types (pattern Vector3, Color (Color))
+import Raylib.Core.Models (drawModelEx)
 import Raylib.Util.Colors (white, black)
 import Raylib.Core.Text (drawFPS)
 import Control.Monad (when)
+import GameState (Scene(ScnMainMenu, ScnGame, ScnOptions), State (showFps, currentScene, camera), initState, updateState)
+import Utils (loadTexturedModel, drawButton, todo')
+import MainMenu (SceneMainMenu(SceneMainMenu), MainMenuItem (..))
+
+title :: String
+title = "T.R.A.N.S.M.I.S.S.I.O.N"
 
 skyColor :: Color
 skyColor = Color 171 214 255 255
 
-data MainMenuItem
-   = MmiNewGame
-   | MmiOptions
-   | MmiExit
-
-data Scene
-   = ScnMainMenu
-      { mmSelectedItem :: MainMenuItem
-      }
-   | ScnGame
-      {
-      }
-
-data State = State
-   { camera :: Camera3D
-   , currentScene :: Scene
-   , showFps :: Bool
-   }
-
 main :: IO ()
 main = do
-   withWindow
-      800 600
-      "T.R.A.N.S.M.I.S.S.I.O.N"
-      60
-      $ \window -> do
-         logoModel <- managed window $ loadModel =<< getDataFileName "assets/logo.obj"
+   withWindow 800 600 title 60 $ \w -> do
+      disableCursor
+      toggleFullscreen
 
-         flip whileWindowOpen_ initState $
-            \s -> do
-               drawing $ do
-                  case currentScene s of
-                     ScnMainMenu _ -> do
-                        clearBackground black
-                        mode3D (camera s) $ do
-                           drawModel logoModel (Vector3 0 2 0) 1 white
+      logo <- loadTexturedModel w "assets/logo.obj" "assets/logo.png"
 
-                     ScnGame -> do
-                        clearBackground skyColor
+      flip whileWindowOpen_ initState $
+         \s -> do
+            screenSize <- (,) <$> getRenderWidth <*> getRenderHeight
+            drawing $ do
+               case currentScene s of
+                  ScnMainMenu (SceneMainMenu item rot) -> do
+                     clearBackground black
+                     mode3D (camera s) $ do
+                        drawModelEx logo (Vector3 0 2 0) (Vector3 0 1 0) rot 0.5 white
 
-                  when (showFps s) $ drawFPS 0 0
+                     drawButton "New game" screenSize (-60) MmiNewGame item
+                     drawButton "Options" screenSize 0 MmiOptions item
+                     drawButton "Exit" screenSize 60 MmiExit item
 
-               updateState s
+                  ScnGame _ -> do
+                     clearBackground skyColor
 
-initState :: State
-initState = State
-   { showFps = False
-   , camera = Camera3D (Vector3 3 2 3) (Vector3 0 0 0) (Vector3 0 1 0) 70 CameraPerspective
-   , currentScene = ScnMainMenu
-      { mmSelectedItem = MmiNewGame
-      }
-   }
+                  ScnOptions _ -> todo' "draw options"
 
-updateState :: State -> IO State
-updateState state = do
-   f3 <- isKeyPressed KeyF3
+               when (showFps s) $ drawFPS 0 0
 
-   let showFps_ = if f3 then not previous else previous
-         where previous = showFps state
-
-   switch <- isKeyPressed KeyA
-   let currentScene_ = if switch
-         then
-            case currentScene state of
-               ScnMainMenu _ -> ScnGame
-               ScnGame -> ScnMainMenu MmiNewGame
-         else
-            currentScene state
-
-   camera_ <- updateCamera (camera state) $ case currentScene state of
-      ScnMainMenu _ -> CameraModeOrbital
-      ScnGame       -> CameraModeFirstPerson
-
-   return state 
-      { camera       = camera_
-      , currentScene = currentScene_
-      , showFps      = showFps_
-      }
+            updateState s
