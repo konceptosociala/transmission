@@ -25,7 +25,8 @@ executable transmission
         Game,
         GameState,
         Options,
-        Utils
+        Utils,
+        Level
     -- other-extensions:
     build-depends:
         base,
