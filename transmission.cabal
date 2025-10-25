@@ -26,7 +26,8 @@ executable transmission
         GameState,
         Options,
         Utils,
-        Level
+        Level,
+        LevelEditor
     -- other-extensions:
     build-depends:
         base,

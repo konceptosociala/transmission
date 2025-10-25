@@ -9,6 +9,9 @@ import Control.Exception (try, IOException)
 import Raylib.Core.Textures (loadImage, loadTextureFromImage)
 import Raylib.Util.Colors
 
+rotToBouncing :: Float -> Float
+rotToBouncing rot = sin ((rot * pi) / 180) / 4
+
 tryReadFile :: String -> IO (Maybe String)
 tryReadFile file = do
    result <- try $ readFile file :: IO (Either IOException String)

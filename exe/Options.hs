@@ -2,9 +2,8 @@ module Options where
 
 import Utils (tryReadFile, todo')
 
-data SceneOptions = SceneOptions
+newtype SceneOptions = SceneOptions
    { optSelectedItem :: OptionsItem
-   , optOptions :: Options
    }
 
 data Options = Options

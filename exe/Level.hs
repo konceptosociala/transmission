@@ -102,12 +102,12 @@ addFaceBottom (xi, yi, zi) mesh =
          ]
 
        texCoords = mesh'texcoords mesh ++
-         [ Vector2 0.0 0.0
-         , Vector2 0.0 1.0
-         , Vector2 1.0 0.0
-         , Vector2 1.0 0.0
-         , Vector2 0.0 1.0
+         [ Vector2 0.0 1.0
          , Vector2 1.0 1.0
+         , Vector2 0.0 0.0
+         , Vector2 1.0 1.0
+         , Vector2 1.0 0.0
+         , Vector2 0.0 0.0
          ]
 
        normals = mesh'normals mesh ++ replicate 6 normal
@@ -168,10 +168,10 @@ addFaceBack (xi, yi, zi) mesh =
          ]
 
        texCoords = mesh'texcoords mesh ++
-         [ Vector2 0.0 0.0
-         , Vector2 0.0 1.0
-         , Vector2 1.0 0.0
-         , Vector2 1.0 0.0
+         [ Vector2 1.0 0.0
+         , Vector2 0.0 0.0
+         , Vector2 1.0 1.0
+         , Vector2 0.0 0.0
          , Vector2 0.0 1.0
          , Vector2 1.0 1.0
          ]
@@ -201,12 +201,12 @@ addFaceLeft (xi, yi, zi) mesh =
          ]
 
        texCoords = mesh'texcoords mesh ++
-         [ Vector2 0.0 0.0
-         , Vector2 0.0 1.0
-         , Vector2 1.0 0.0
-         , Vector2 1.0 0.0
-         , Vector2 0.0 1.0
+         [ Vector2 1.0 0.0
+         , Vector2 0.0 0.0
          , Vector2 1.0 1.0
+         , Vector2 1.0 1.0
+         , Vector2 0.0 0.0
+         , Vector2 0.0 1.0
          ]
 
        normals = mesh'normals mesh ++ replicate 6 normal

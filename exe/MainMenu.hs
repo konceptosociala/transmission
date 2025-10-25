@@ -8,19 +8,27 @@ import Data.Function ((&))
 
 data SceneMainMenu = SceneMainMenu
    { mmSelectedItem :: MainMenuItem
+   , mmItemClicked :: Bool
    , mmLogoRotation :: Float
    }
 
+data SceneSingleplayer = SceneSingleplayer
+
+data SceneConnect = SceneConnect
+
 data MainMenuItem
-   = MmiNewGame
+   = MmiSingleplayer
+   | MmiConnect
+   | MmiLevelEditor
    | MmiOptions
    | MmiExit
    deriving Eq
 
 updateMainMenu :: SceneMainMenu -> IO SceneMainMenu
-updateMainMenu (SceneMainMenu item rot) = do
+updateMainMenu (SceneMainMenu item _ rot) = do
    down  <- isKeyPressed KeyDown
    up    <- isKeyPressed KeyUp
+   enter <- isKeyPressed KeyEnter
    let mmSelectedItem = item & if up
          then prevMenuItem
          else if down
@@ -30,6 +38,7 @@ updateMainMenu (SceneMainMenu item rot) = do
    dt <- getFrameTime
 
    let mmLogoRotation = rot + (32.0 * dt)
+   let mmItemClicked = enter
 
    return SceneMainMenu {..}
 
@@ -43,11 +52,15 @@ setFullScreen should = do
       toggleFullscreen
 
 nextMenuItem :: MainMenuItem -> MainMenuItem
-nextMenuItem MmiNewGame = MmiOptions
-nextMenuItem MmiOptions = MmiExit
-nextMenuItem MmiExit    = MmiNewGame
+nextMenuItem MmiSingleplayer = MmiConnect
+nextMenuItem MmiConnect      = MmiLevelEditor
+nextMenuItem MmiLevelEditor  = MmiOptions
+nextMenuItem MmiOptions      = MmiExit
+nextMenuItem MmiExit         = MmiSingleplayer
 
 prevMenuItem :: MainMenuItem -> MainMenuItem
-prevMenuItem MmiNewGame = MmiExit
-prevMenuItem MmiOptions = MmiNewGame
-prevMenuItem MmiExit    = MmiOptions
+prevMenuItem MmiSingleplayer = MmiExit
+prevMenuItem MmiConnect      = MmiSingleplayer
+prevMenuItem MmiLevelEditor  = MmiConnect
+prevMenuItem MmiOptions      = MmiLevelEditor
+prevMenuItem MmiExit         = MmiOptions

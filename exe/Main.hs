@@ -1,17 +1,16 @@
 {-# LANGUAGE PatternSynonyms #-}
 module Main where
 
-import Raylib.Util (withWindow, whileWindowOpen_, mode3D, drawing, managed)
-import Raylib.Core (clearBackground, disableCursor, toggleFullscreen, getRenderWidth, getRenderHeight)
-import Raylib.Types (pattern Vector3, Color (Color))
-import Raylib.Core.Models (drawModelEx, loadModelFromMesh)
-import Raylib.Util.Colors (white, black)
+import Raylib.Util (withWindow, mode3D, drawing)
+import Raylib.Core (clearBackground, disableCursor, toggleFullscreen, getRenderWidth, getRenderHeight, setExitKey, windowShouldClose)
+import Raylib.Types (pattern Vector3, Color (Color), KeyboardKey (KeyNull))
+import Raylib.Core.Models (drawModelEx)
 import Raylib.Core.Text (drawFPS)
 import Control.Monad (when)
-import GameState (Scene(ScnMainMenu, ScnGame, ScnOptions), State (showFps, currentScene, camera), initState, updateState)
+import GameState (Scene(..), State (showFps, currentScene, camera), initState, updateState, isExitState)
 import Utils (loadTexturedModel, drawButton, todo')
 import MainMenu (SceneMainMenu(SceneMainMenu), MainMenuItem (..))
-import Level (cube)
+import Raylib.Util.Colors
 
 title :: String
 title = "T.R.A.N.S.M.I.S.S.I.O.N"
@@ -24,30 +23,41 @@ main = do
    withWindow 800 600 title 60 $ \w -> do
       disableCursor
       toggleFullscreen
+      setExitKey KeyNull
 
       logo <- loadTexturedModel w "assets/logo.obj" "assets/logo.png"
-      cube <- managed w $ loadModelFromMesh =<< cube
 
-      flip whileWindowOpen_ initState $
+      whileWindowOpen initState $
          \s -> do
             screenSize <- (,) <$> getRenderWidth <*> getRenderHeight
             drawing $ do
                case currentScene s of
-                  ScnMainMenu (SceneMainMenu item rot) -> do
+                  ScnMainMenu (SceneMainMenu item _ rot) -> do
                      clearBackground black
-                     mode3D (camera s) $ do
-                        -- drawModelEx logo (Vector3 0 2 0) (Vector3 0 1 0) rot 0.5 white
-                        drawModelEx cube (Vector3 0 1 0) (Vector3 1 1 1) rot 0.5 white
+                     mode3D (camera s) $
+                        drawModelEx logo (Vector3 0 2 0) (Vector3 0 1 0) rot 0.5 white
 
-                     drawButton "New game" screenSize (-60) MmiNewGame item
-                     drawButton "Options" screenSize 0 MmiOptions item
-                     drawButton "Exit" screenSize 60 MmiExit item
+                     drawButton "Singleplayer"  screenSize (-120) MmiSingleplayer item
+                     drawButton "Connect..."    screenSize (-60)  MmiConnect      item
+                     drawButton "Level Editor"  screenSize 0      MmiLevelEditor  item
+                     drawButton "Options"       screenSize 60     MmiOptions      item
+                     drawButton "Exit"          screenSize 120    MmiExit         item
 
                   ScnGame _ -> do
                      clearBackground skyColor
 
-                  ScnOptions _ -> todo' "draw options"
+                  ScnExit -> return ()
+                  _ -> todo' "draw another scenes"
 
                when (showFps s) $ drawFPS 0 0
 
             updateState s
+
+whileWindowOpen :: State -> (State -> IO State) -> IO ()
+whileWindowOpen state f = do
+   newState    <- f state
+   shouldClose <- windowShouldClose
+
+   if shouldClose || isExitState newState
+      then return ()
+      else whileWindowOpen newState f

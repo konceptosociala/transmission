@@ -3,12 +3,12 @@ module GameState where
 
 import Raylib.Core (isKeyPressed)
 import Raylib.Core.Camera (updateCamera)
-import Raylib.Types (CameraMode(CameraModeFirstPerson), Camera3D(..), pattern Vector3, CameraProjection (CameraPerspective), KeyboardKey (KeyA, KeyF3))
-import Data.Function
+import Raylib.Types (CameraMode(CameraModeFirstPerson), Camera3D(..), pattern Vector3, CameraProjection (CameraPerspective), KeyboardKey (KeyF3))
 import MainMenu
 import Options
 import Game
 import Utils (todo')
+import LevelEditor
 
 data State = State
    { camera :: Camera3D
@@ -19,7 +19,17 @@ data State = State
 data Scene
    = ScnMainMenu SceneMainMenu
    | ScnOptions SceneOptions
+   | ScnSingleplayer SceneSingleplayer
+   | ScnConnect SceneConnect
    | ScnGame SceneGame
+   | ScnLevelEditor SceneLevelEditor
+   | ScnExit
+
+isExitState :: State -> Bool
+isExitState state = 
+   case currentScene state of
+      ScnExit -> True
+      _       -> False
 
 initState :: State
 initState = State
@@ -32,7 +42,8 @@ initState = State
       , camera3D'projection = CameraPerspective
       }
    , currentScene = ScnMainMenu $ SceneMainMenu
-      { mmSelectedItem = MmiNewGame
+      { mmSelectedItem = MmiSingleplayer
+      , mmItemClicked = False
       , mmLogoRotation = 0
       }
    }
@@ -44,12 +55,23 @@ updateState state = do
    let showFps_ = if f3 then not previous else previous
          where previous = showFps state
 
-   switch <- isKeyPressed KeyA
-   currentScene_ <- currentScene state
-      & switchScene switch
-      & updateScene
+   updatedScene <- updateScene $ currentScene state
 
-   camera_ <-  case currentScene state of
+   let currentScene_ = case updatedScene of
+         initial@(ScnMainMenu (SceneMainMenu item selected _)) -> 
+            if selected 
+               then case item of
+                  MmiSingleplayer -> ScnSingleplayer SceneSingleplayer
+                  MmiConnect      -> ScnConnect SceneConnect
+                  MmiLevelEditor  -> ScnLevelEditor SceneLevelEditor
+                  MmiOptions      -> ScnOptions (SceneOptions OptMusicVolume)
+                  MmiExit         -> ScnExit
+               else initial
+               
+
+         other -> other
+
+   camera_ <- case currentScene state of
       ScnGame _ -> updateCamera (camera state) CameraModeFirstPerson
       _         -> pure $ camera state
 
@@ -59,18 +81,8 @@ updateState state = do
       , showFps      = showFps_
       }
 
-switchScene :: Bool -> Scene -> Scene
-switchScene switch current =
-   if switch
-      then
-         case current of
-            ScnMainMenu _ -> ScnGame SceneGame
-            ScnGame _ -> ScnMainMenu $ SceneMainMenu MmiNewGame 0
-            _ -> todo' "switch options"
-      else
-         current
-
 updateScene :: Scene -> IO Scene
 updateScene (ScnGame _) = pure $ ScnGame SceneGame
 updateScene (ScnMainMenu mainMenu) = ScnMainMenu <$> updateMainMenu mainMenu
-updateScene _ = todo' "update options"
+updateScene ScnExit = pure ScnExit
+updateScene _ = todo' "update other scenes"
