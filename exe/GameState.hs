@@ -2,16 +2,18 @@
 module GameState where
 
 import Raylib.Core (isKeyPressed)
-import Raylib.Core.Camera (updateCamera)
-import Raylib.Types (CameraMode(CameraModeFirstPerson), Camera3D(..), pattern Vector3, CameraProjection (CameraPerspective), KeyboardKey (KeyF3))
+import Raylib.Types (Camera3D(..), pattern Vector3, CameraProjection (CameraPerspective), KeyboardKey (KeyF3))
 import MainMenu
 import Options
 import Game
 import Utils (todo')
 import LevelEditor
+import Data.Function
+import Level (Level)
 
 data State = State
    { camera :: Camera3D
+   , loadedLevels :: [Level]
    , currentScene :: Scene
    , showFps :: Bool
    }
@@ -25,15 +27,36 @@ data Scene
    | ScnLevelEditor SceneLevelEditor
    | ScnExit
 
+mainMenuCam :: Camera3D
+mainMenuCam = Camera3D
+   { camera3D'position = Vector3 3 1 0
+   , camera3D'target = Vector3 0 1 0
+   , camera3D'up = Vector3 0 1 0
+   , camera3D'fovy = 70
+   , camera3D'projection = CameraPerspective
+   };
+
+getCamera :: Scene -> Camera3D
+getCamera sc = case sc of
+   ScnMainMenu _     -> mainMenuCam
+   ScnOptions _      -> mainMenuCam
+   ScnConnect _      -> mainMenuCam
+   ScnExit           -> mainMenuCam
+   ScnSingleplayer _ -> mainMenuCam
+   ScnLevelEditor (SceneLevelEditor cam) -> cam
+   ScnGame _ -> todo' "game camera"
+
+
 isExitState :: State -> Bool
 isExitState state = 
    case currentScene state of
       ScnExit -> True
       _       -> False
 
-initState :: State
-initState = State
+initState :: [Level] -> State
+initState loadedLevels = State
    { showFps = False
+   , loadedLevels = loadedLevels
    , camera = Camera3D
       { camera3D'position = Vector3 3 1 0
       , camera3D'target = Vector3 0 1 0
@@ -63,17 +86,13 @@ updateState state = do
                then case item of
                   MmiSingleplayer -> ScnSingleplayer SceneSingleplayer
                   MmiConnect      -> ScnConnect SceneConnect
-                  MmiLevelEditor  -> ScnLevelEditor SceneLevelEditor
+                  MmiLevelEditor  -> ScnLevelEditor mkSceneLevelEditor
                   MmiOptions      -> ScnOptions (SceneOptions OptMusicVolume)
                   MmiExit         -> ScnExit
                else initial
-               
-
          other -> other
 
-   camera_ <- case currentScene state of
-      ScnGame _ -> updateCamera (camera state) CameraModeFirstPerson
-      _         -> pure $ camera state
+   let camera_ = getCamera currentScene_
 
    return state
       { camera       = camera_
@@ -82,7 +101,8 @@ updateState state = do
       }
 
 updateScene :: Scene -> IO Scene
-updateScene (ScnGame _) = pure $ ScnGame SceneGame
-updateScene (ScnMainMenu mainMenu) = ScnMainMenu <$> updateMainMenu mainMenu
-updateScene ScnExit = pure ScnExit
+updateScene (ScnGame _)             = ScnGame SceneGame  & pure
+updateScene (ScnMainMenu mainMenu)  = ScnMainMenu       <$> updateMainMenu mainMenu
+updateScene (ScnLevelEditor editor) = ScnLevelEditor    <$> updateLevelEditor editor
+updateScene ScnExit                 = ScnExit            & pure 
 updateScene _ = todo' "update other scenes"
