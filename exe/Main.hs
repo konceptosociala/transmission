@@ -11,7 +11,11 @@ import GameState (Scene(..), State (showFps, currentScene, camera), initState, u
 import Utils (loadTexturedModel, drawButton, todo')
 import MainMenu (SceneMainMenu(SceneMainMenu), MainMenuItem (..))
 import Raylib.Util.Colors
-import Level (Level (..))
+import Level (Level (..), Dims (Dims), Block (BEmpty, BFinish, BPunch, BHeight), Direction (DirFront))
+import Level.Manipulate (newLevel, setBlock, freezeLevel)
+import qualified Data.ByteString as BS
+import Level.Binary (serializeLevel)
+import Text.Printf (printf)
 
 title :: String
 title = "T.R.A.N.S.M.I.S.S.I.O.N"
@@ -22,10 +26,18 @@ skyColor = Color 171 214 255 255
 main :: IO ()
 main = do
    let filename = "test.lvl"
-   
-   -- BL.writeFile filename $ Put.runPut $ mapM_ Put.putWord32be magicNumber
 
-   putStrLn "Test level saved"
+   let dims = Dims 2 2 2
+   ml <- newLevel dims
+   setBlock ml (0, 0, 0) BFinish
+   setBlock ml (1, 0, 0) BPunch
+   setBlock ml (0, 1, 0) $ BHeight DirFront 3
+   lvl <- freezeLevel ml
+   print lvl
+   BS.writeFile filename $ serializeLevel lvl
+
+   loaded <- BS.drop 15 <$> BS.readFile filename
+   putStrLn $ "Binary: " ++ concatMap (printf "%08b ") (BS.unpack loaded)
 
 main_ :: IO ()
 main_ = do

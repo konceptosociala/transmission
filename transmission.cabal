@@ -29,6 +29,7 @@ executable transmission
         Level,
         Level.Mesh,
         Level.Binary,
+        Level.Manipulate,
         LevelEditor
     -- other-extensions:
     build-depends:

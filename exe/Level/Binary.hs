@@ -17,20 +17,24 @@ magicNumber = 0xFA91D_AB0BA_09EC7_0 -- FARID, ABOBA, OPECT: big-endian
 
 serializeLevel :: Level -> BS.ByteString
 serializeLevel (Level (Dims w h d) blocks) =
-   let hdr     = BB.word64BE magicNumber      
-       dimsB   = BB.word16BE w <> BB.word16BE h <> BB.word16BE d       
+   let hdr     = BB.word64BE magicNumber
+       dimsB   = BB.word16BE w <> BB.word16BE h <> BB.word16BE d
 
        allBits = encodeBlocks $ map fixedToBlock $ U.toList blocks
-       level   = BB.byteString $ cloneToByteString allBits
+       levelR  = cloneToByteString allBits
+       level   = BB.byteString $ BS.map rev8 levelR
 
        nBits   = U.length allBits
        trBits  = (8 - (nBits `mod` 8)) `mod` 8
        pad     = BB.word8 $ fromIntegral trBits
    in BL.toStrict $ BB.toLazyByteString $
-         hdr      -- 3 bytes MAGIC NUMBER
+         hdr      -- 8 bytes MAGIC NUMBER
       <> dimsB    -- 6 bytes DIMS in U16
       <> pad      -- 1 byte 0-7 trailing bits
       <> level    -- 1D array of level data
+
+deserializeLevel :: BS.ByteString -> Level
+deserializeLevel bs = undefined
 
 encodeBlocks :: [Block] -> U.Vector Bit
 encodeBlocks blocks = runST $ do
@@ -39,10 +43,16 @@ encodeBlocks blocks = runST $ do
    go mv blocks 0
 
    U.unsafeFreeze mv
-      where 
+      where
          go :: MU.MVector s Bit -> [Block] -> Int -> ST s ()
          go _ [] _         = pure ()
-         go mv (b:rest) i  = writeBlock mv i b >>= go mv rest         
+         go mv (b:rest) i  = writeBlock mv i b >>= go mv rest
+
+rev8 :: Word8 -> Word8
+rev8 x =
+   let x1 = ((x .&. 0xF0) `shiftR` 4) .|. ((x .&. 0x0F) `shiftL` 4)
+       x2 = ((x1 .&. 0xCC) `shiftR` 2) .|. ((x1 .&. 0x33) `shiftL` 2) 
+   in       ((x2 .&. 0xAA) `shiftR` 1) .|. ((x2 .&. 0x55) `shiftL` 1)
 
 blockToFixed :: Block -> Word8
 blockToFixed BEmpty           = 0b00000000
@@ -57,7 +67,7 @@ fixedToBlock w8
    | w8 == 0b00000001 = BSolid
    | w8 == 0b11111110 = BPunch
    | w8 == 0b11111111 = BFinish
-   | otherwise = 
+   | otherwise =
       let dirCode = (w8 `shiftR` 3) .&. 0b00000111
           heightVal = (w8 .&. 0b00000111) - 1
           dir = case dirCode of
@@ -94,7 +104,7 @@ writeBlock mv i b =
       BPunch         -> writeNBits mv i 3 0b110
       BFinish        -> writeNBits mv i 3 0b111
 
-heightToBin :: Direction -> Int -> Word8
+heightToBin :: Direction -> Word8 -> Word8
 heightToBin dir h
    | h < 1     = heightToBin dir 1
    | h > 6     = heightToBin dir 6
@@ -106,14 +116,14 @@ heightToBin dir h
 
 writeNBits :: MU.MVector s Bit -> Int -> Int -> Word8 -> ST s Int
 writeNBits mv i n byte = go 0 i
-   where 
+   where
       go k j
          | k == n    = pure j
          | otherwise = do
             let bitIdx = n - k - 1
             let b = testBit byte bitIdx
-             
+
             MU.write mv j (Bit b)
-            
+
             go (k + 1) (j + 1)
 
