@@ -29,14 +29,19 @@ executable transmission
         Level,
         Level.Mesh,
         Level.Binary,
+        Level.Binary.BitParser,
+        Level.Binary.BitMacro,
         Level.Manipulate,
         LevelEditor
     -- other-extensions:
     build-depends:
+        transformers ^>=0.6.1.0,
+        template-haskell ^>=2.20.0.0,
         vector ^>=0.13.2.0,
         binary ^>=0.8.9.1,
         bytestring ^>=0.11.5.4,
         bitvec ==1.1.5.0,
+        megaparsec ==9.7.0,
         base,
         h-raylib
     hs-source-dirs:   exe

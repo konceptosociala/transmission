@@ -1,40 +1,69 @@
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE QuasiQuotes #-}
 module Level.Binary where
 
 import Data.Bit
 import Control.Monad.ST
+import Control.Monad.Trans.Class (lift)
 import qualified Data.Vector.Unboxed as U
 import qualified Data.Vector.Unboxed.Mutable as MU
 import Data.Binary (Word8, Word64)
 import Data.Bits (Bits(testBit, shiftL, shiftR))
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Builder as BB
-import qualified Data.ByteString as BL
 import Foreign (Bits((.|.), (.&.)))
 import Level
+import Level.Binary.BitParser (Parser, word64Exact, word16, word8, ErrorRepr (ReprHex), ErrorDescr (ErrorDescr), skipLastBits, bitsExact, (<->))
+import Text.Megaparsec
+import Control.Monad (forM_)
+import Level.Binary.BitMacro (bits)
 
 magicNumber :: Word64
 magicNumber = 0xFA91D_AB0BA_09EC7_0 -- FARID, ABOBA, OPECT: big-endian
 
-serializeLevel :: Level -> BS.ByteString
-serializeLevel (Level (Dims w h d) blocks) =
-   let hdr     = BB.word64BE magicNumber
-       dimsB   = BB.word16BE w <> BB.word16BE h <> BB.word16BE d
+levelP :: MU.PrimMonad m => Parser m (MLevel (MU.PrimState m))
+levelP = do
+   _        <- magicNumberP
+   mlvlDims <- dimsP <?> "dimensions"
+   pad      <- word8 <?> "pad"
+   skipLastBits (fromIntegral pad)
 
-       allBits = encodeBlocks $ map fixedToBlock $ U.toList blocks
-       levelR  = cloneToByteString allBits
-       level   = BB.byteString $ BS.map rev8 levelR
+   let n = dimsLen mlvlDims
+   mlvlBlocks <- do
+      mv <- lift $ MU.unsafeNew n
+      forM_ [0..n-1] $ \i -> do
+         b <- blockToFixed <$> blockP
+         lift $ MU.unsafeWrite mv i b
+      pure mv
 
-       nBits   = U.length allBits
-       trBits  = (8 - (nBits `mod` 8)) `mod` 8
-       pad     = BB.word8 $ fromIntegral trBits
-   in BL.toStrict $ BB.toLazyByteString $
-         hdr      -- 8 bytes MAGIC NUMBER
-      <> dimsB    -- 6 bytes DIMS in U16
-      <> pad      -- 1 byte 0-7 trailing bits
-      <> level    -- 1D array of level data
+   return MLevel {..}
 
-deserializeLevel :: BS.ByteString -> Level
-deserializeLevel bs = undefined
+blockP :: Parser m Block
+blockP = (BEmpty    <$ bitsExact [bits|111|])
+     <-> (BSolid    <$ bitsExact [bits|110|])
+     <-> (BHeight   <$> dirP <*> heightP)
+     <-> (BPunch    <$ bitsExact [bits|000000|])
+     <-> (BFinish   <$ bitsExact [bits|000001|])
+
+dirP :: Parser m Direction
+dirP = (DirUp     <$ bitsExact [bits|000|])
+   <-> (DirDown   <$ bitsExact [bits|001|])
+   <-> (DirFront  <$ bitsExact [bits|010|])
+   <-> (DirBack   <$ bitsExact [bits|011|])
+   <-> (DirRight  <$ bitsExact [bits|100|])
+   <-> (DirLeft   <$ bitsExact [bits|101|])
+
+heightP :: Parser m Word8
+heightP = (1 <$ bitsExact [bits|010|])
+      <-> (2 <$ bitsExact [bits|011|])
+      <-> (3 <$ bitsExact [bits|100|])
+      <-> (4 <$ bitsExact [bits|101|])
+      <-> (5 <$ bitsExact [bits|110|])
+      <-> (6 <$ bitsExact [bits|111|])
+
+dimsP :: Parser m Dims
+dimsP = Dims <$> word16 <*> word16 <*> word16
+
+magicNumberP :: Parser m Word64
+magicNumberP = word64Exact magicNumber (ErrorDescr "magic number" ReprHex)
 
 encodeBlocks :: [Block] -> U.Vector Bit
 encodeBlocks blocks = runST $ do
@@ -48,25 +77,19 @@ encodeBlocks blocks = runST $ do
          go _ [] _         = pure ()
          go mv (b:rest) i  = writeBlock mv i b >>= go mv rest
 
-rev8 :: Word8 -> Word8
-rev8 x =
-   let x1 = ((x .&. 0xF0) `shiftR` 4) .|. ((x .&. 0x0F) `shiftL` 4)
-       x2 = ((x1 .&. 0xCC) `shiftR` 2) .|. ((x1 .&. 0x33) `shiftL` 2) 
-   in       ((x2 .&. 0xAA) `shiftR` 1) .|. ((x2 .&. 0x55) `shiftL` 1)
-
 blockToFixed :: Block -> Word8
-blockToFixed BEmpty           = 0b00000000
-blockToFixed BSolid           = 0b00000001
-blockToFixed BPunch           = 0b11111110
-blockToFixed BFinish          = 0b11111111
+blockToFixed BEmpty           = 0b11111111
+blockToFixed BSolid           = 0b11111110
+blockToFixed BPunch           = 0b00000000
+blockToFixed BFinish          = 0b00000001
 blockToFixed (BHeight dir h)  = heightToBin dir h
 
 fixedToBlock :: Word8 -> Block
 fixedToBlock w8
-   | w8 == 0b00000000 = BEmpty
-   | w8 == 0b00000001 = BSolid
-   | w8 == 0b11111110 = BPunch
-   | w8 == 0b11111111 = BFinish
+   | w8 == 0b11111111 = BEmpty
+   | w8 == 0b11111110 = BSolid
+   | w8 == 0b00000000 = BPunch
+   | w8 == 0b00000001 = BFinish
    | otherwise =
       let dirCode = (w8 `shiftR` 3) .&. 0b00000111
           heightVal = (w8 .&. 0b00000111) - 1
@@ -89,20 +112,20 @@ dirBits DirLeft  = 0b100
 dirBits DirRight = 0b101
 
 blockBitLen :: Block -> Int
-blockBitLen BEmpty         = 6
-blockBitLen BSolid         = 6
+blockBitLen BEmpty         = 3
+blockBitLen BSolid         = 3
 blockBitLen (BHeight _ _)  = 6
-blockBitLen BPunch         = 3
-blockBitLen BFinish        = 3
+blockBitLen BPunch         = 6
+blockBitLen BFinish        = 6
 
 writeBlock :: MU.MVector s Bit -> Int -> Block -> ST s Int
 writeBlock mv i b =
    case b of
-      BEmpty         -> writeNBits mv i 6 0b000
-      BSolid         -> writeNBits mv i 6 0b001
+      BEmpty         -> writeNBits mv i 3 0b111
+      BSolid         -> writeNBits mv i 3 0b110
       BHeight dir h  -> writeNBits mv i 6 $ heightToBin dir h
-      BPunch         -> writeNBits mv i 3 0b110
-      BFinish        -> writeNBits mv i 3 0b111
+      BPunch         -> writeNBits mv i 6 0b000
+      BFinish        -> writeNBits mv i 6 0b001
 
 heightToBin :: Direction -> Word8 -> Word8
 heightToBin dir h
@@ -127,3 +150,6 @@ writeNBits mv i n byte = go 0 i
 
             go (k + 1) (j + 1)
 
+dimsLen :: Dims -> Int
+dimsLen (Dims w h d) = f w * f h * f d
+   where f = fromIntegral

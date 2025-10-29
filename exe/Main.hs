@@ -11,11 +11,10 @@ import GameState (Scene(..), State (showFps, currentScene, camera), initState, u
 import Utils (loadTexturedModel, drawButton, todo')
 import MainMenu (SceneMainMenu(SceneMainMenu), MainMenuItem (..))
 import Raylib.Util.Colors
-import Level (Level (..), Dims (Dims), Block (BEmpty, BFinish, BPunch, BHeight), Direction (DirFront))
-import Level.Manipulate (newLevel, setBlock, freezeLevel)
+import Level (Level (..), Dims (Dims), Block (BFinish, BPunch, BHeight), Direction (DirFront))
+import Level.Manipulate (newLevel, setBlock, freezeLevel, serializeLevel, deserializeLevel)
 import qualified Data.ByteString as BS
-import Level.Binary (serializeLevel)
-import Text.Printf (printf)
+import Text.Megaparsec (errorBundlePretty)
 
 title :: String
 title = "T.R.A.N.S.M.I.S.S.I.O.N"
@@ -36,8 +35,15 @@ main = do
    print lvl
    BS.writeFile filename $ serializeLevel lvl
 
-   loaded <- BS.drop 15 <$> BS.readFile filename
-   putStrLn $ "Binary: " ++ concatMap (printf "%08b ") (BS.unpack loaded)
+   loaded <- BS.readFile filename
+   let lvlDe = deserializeLevel loaded
+   case lvlDe of
+      Left err -> putStrLn $ errorBundlePretty err
+      Right lvl2 -> print lvl2
+
+   return ()
+
+
 
 main_ :: IO ()
 main_ = do
