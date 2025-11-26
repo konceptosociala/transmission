@@ -1,2 +1,4 @@
 /dist-newstyle/
-settings.ini
+/settings.ini
+/levels/
+/levels/*.lvl
