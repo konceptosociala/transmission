@@ -2,9 +2,10 @@
 module Sounds where
 
 import Raylib.Types (Sound, Music)
-import Raylib.Core.Audio (loadSound, loadMusicStream)
+import Raylib.Core.Audio (loadSound, loadMusicStream, setSoundVolume, setMusicVolume)
 import Paths_transmission (getDataFileName)
 import Raylib.Util (WindowResources, managed)
+import Options (Options (Options))
 
 data Sounds = Sounds
    -- Sounds
@@ -24,3 +25,10 @@ loadSounds w = do
    mscMenuBg <- managed w $ loadMusicStream =<< getDataFileName "assets/music/menuBg.ogg"
 
    return Sounds {..}
+
+updateSounds :: Sounds -> Options -> IO ()
+updateSounds sounds (Options musicVolume soundVolume _) = do
+   setSoundVolume (sndClick sounds) (fromIntegral soundVolume / 100)
+   setSoundVolume (sndHover sounds) (fromIntegral soundVolume / 100)
+   setSoundVolume (sndError sounds) (fromIntegral soundVolume / 100)
+   setMusicVolume (mscMenuBg sounds) (fromIntegral musicVolume / 100)

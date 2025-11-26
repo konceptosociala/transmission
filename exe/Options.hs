@@ -2,20 +2,22 @@
 module Options where
 
 import qualified Data.HashMap.Strict as HM
-import Utils (eitherToMaybe)
+import Utils (eitherToMaybe, readInt, readBool)
 import Data.Ini
-import Data.Text (pack)
+import Data.Text (pack, unpack)
 import Raylib.Core (fileExists)
 
-newtype SceneOptions = SceneOptions
+data SceneOptions = SceneOptions
    { optSelectedItem :: OptionsItem
+   , optInnerOpts :: Options
+   , optFinished :: Bool
    }
 
 data Options = Options
    { musicVolume :: Int
    , soundVolume :: Int
    , isFullscreen :: Bool
-   }
+   } deriving (Eq, Show)
 
 optsDefault :: Options
 optsDefault = Options 100 100 True
@@ -37,11 +39,21 @@ optsFromIni :: Ini -> Maybe Options
 optsFromIni ini = do
    let lookupField sect key = eitherToMaybe $ lookupValue sect key ini
 
-   mvolT <- show <$> lookupField "SETTINGS" "mvol"
-   svolT <- show <$> lookupField "SETTINGS" "svol"
-   isfsT <- show <$> lookupField "SETTINGS" "isfs"
+   mvolT <- lookupField "SETTINGS" "mvol"
+   svolT <- lookupField "SETTINGS" "svol"
+   isfsT <- lookupField "SETTINGS" "isfs"
 
-   return $ Options (read mvolT) (read svolT) (read isfsT)
+   mvol <- readInt (unpack mvolT)
+   svol <- readInt (unpack svolT)
+   isfs <- readBool (unpack isfsT)
+
+   if [0..100] `contains` mvol && [0..100] `contains` svol then
+      Just $ Options mvol svol isfs
+   else
+      Nothing
+
+   where
+      contains range x = x >= minimum range && x <= maximum range
 
 data OptionsItem
    = OptMusicVolume
@@ -51,18 +63,32 @@ data OptionsItem
    | OptCancel
    deriving Eq
 
+prevOptionsItem :: OptionsItem -> OptionsItem
+prevOptionsItem OptMusicVolume  = OptCancel
+prevOptionsItem OptSoundVolume  = OptMusicVolume
+prevOptionsItem OptFullscreen   = OptSoundVolume
+prevOptionsItem OptSave         = OptFullscreen
+prevOptionsItem OptCancel       = OptSave
+
+nextOptionsItem :: OptionsItem -> OptionsItem
+nextOptionsItem OptMusicVolume  = OptSoundVolume
+nextOptionsItem OptSoundVolume  = OptFullscreen
+nextOptionsItem OptFullscreen   = OptSave
+nextOptionsItem OptSave         = OptCancel
+nextOptionsItem OptCancel       = OptMusicVolume
+
 loadOrCreateOptions :: IO Options
 loadOrCreateOptions = do
-   let def = saveConfig optsDefault >> return optsDefault
-
    f <- fileExists "settings.ini"
-   if not f then 
-      def 
+   if not f then
+      def
    else do
       file <- eitherToMaybe <$> readIniFile "settings.ini"
       case file of
          Just ini -> maybe def pure (optsFromIni ini)
          Nothing -> def
+
+      where def = saveConfig optsDefault >> return optsDefault
 
 saveConfig :: Options -> IO ()
 saveConfig opts = writeIniFile "settings.ini" (optsToIni opts)

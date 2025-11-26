@@ -3,11 +3,11 @@
 module GameState where
 
 import Raylib.Core (isKeyPressed, getCharPressed, isKeyDown)
-import Raylib.Types (Camera3D(..), pattern Vector3, CameraProjection (CameraPerspective), KeyboardKey (KeyF3, KeyEscape, KeyDown, KeyUp, KeyEnter, KeyBackspace, KeyLeftControl, KeyS))
+import Raylib.Types (Camera3D(..), pattern Vector3, CameraProjection (CameraPerspective), KeyboardKey (..))
 import MainMenu
 import Options
 import Game
-import Utils (todo', unreachable', safeInit, isKeyPressedMaybeRepeat)
+import Utils (todo__, unreachable', safeInit, isKeyPressedMaybeRepeat)
 import LevelEditor
 import Data.Function
 import Level (Dims(..))
@@ -38,19 +38,6 @@ data Scene
    | ScnLevelEditorSelect SceneLevelEditorSelect
    | ScnExit
 
-getCamera :: Scene -> Camera3D
-getCamera sc = case sc of
-   ScnMainMenu _          -> mainMenuCam
-   ScnOptions _           -> mainMenuCam
-   ScnConnect _           -> mainMenuCam
-   ScnExit                -> mainMenuCam
-   ScnSingleplayer _      -> mainMenuCam
-   ScnLevelEditorSelect _ -> mainMenuCam
-   ScnNewLevel _          -> mainMenuCam
-   ScnLevelEditor (SceneLevelEditor cam _ _) -> cam
-   ScnGame _ -> todo' "game camera"
-
-
 isExitState :: State -> Bool
 isExitState state =
    case currentScene state of
@@ -80,8 +67,14 @@ updateState state = do
    let showFps_ = if f3 then not previous else previous
          where previous = showFps state
 
-   updatedScene <- updateScene (currentScene state) (sounds state)
+   updatedScene <- updateScene (currentScene state) (sounds state) (optionsValue state)
 
+   -- Get updated options if changed
+   let optionsValue_ = case updatedScene of
+         (ScnOptions (SceneOptions _ opts _)) -> opts
+         _ -> optionsValue state
+
+   -- Open scene from main menu
    let currentScene_ = case updatedScene of
          initial@(ScnMainMenu (SceneMainMenu item selected _ _)) ->
             if selected
@@ -89,24 +82,32 @@ updateState state = do
                   MmiSingleplayer -> ScnSingleplayer SceneSingleplayer
                   MmiConnect      -> ScnConnect SceneConnect
                   MmiLevelEditor  -> ScnLevelEditorSelect $ SceneLevelEditorSelect (loadedLevels state) 0
-                  MmiOptions      -> ScnOptions (SceneOptions OptMusicVolume)
+                  MmiOptions      -> ScnOptions (SceneOptions OptMusicVolume (optionsValue state) False)
                   MmiExit         -> ScnExit
                else initial
          other -> other
 
-   let camera_ = getCamera currentScene_
+   -- Check if we need to apply options
+   case currentScene_ of
+      ScnOptions (SceneOptions _ opts True) -> do
+         updateSounds (sounds state) opts
+         setFullScreen (isFullscreen opts)
+      _ -> 
+         pure ()
 
    return state
-      { camera       = camera_
+      { camera       = getCamera currentScene_
       , currentScene = currentScene_
       , showFps      = showFps_
+      , optionsValue = optionsValue_
       }
 
-updateScene :: Scene -> Sounds -> IO Scene
-updateScene (ScnGame _) _ = pure $ ScnGame SceneGame
-updateScene (ScnMainMenu mainMenu) sound' = ScnMainMenu <$> updateMainMenu mainMenu sound'
+updateScene :: Scene -> Sounds -> Options -> IO Scene
+updateScene (ScnGame _) _ _ = pure $ ScnGame SceneGame
 
-updateScene (ScnLevelEditor editor@(SceneLevelEditor cam lvl (LevelDescr name))) sound' = do
+updateScene (ScnMainMenu mainMenu) sound' _ = ScnMainMenu <$> updateMainMenu mainMenu sound'
+
+updateScene (ScnLevelEditor editor@(SceneLevelEditor _cam lvl (LevelDescr name))) sound' _ = do
    esc  <- isKeyPressed KeyEscape
    ctrl <- isKeyDown KeyLeftControl
    s    <- isKeyPressed KeyS
@@ -122,13 +123,13 @@ updateScene (ScnLevelEditor editor@(SceneLevelEditor cam lvl (LevelDescr name)))
    else
       return $ ScnMainMenu mkMainMenu
 
-updateScene (ScnLevelEditorSelect (SceneLevelEditorSelect lvls i)) sound' = do
+updateScene (ScnLevelEditorSelect (SceneLevelEditorSelect lvls i)) sound' _ = do
    esc   <- isKeyPressed KeyEscape
    down  <- isKeyPressed KeyDown
    up    <- isKeyPressed KeyUp
    enter <- isKeyPressed KeyEnter
 
-   when (down || up) 
+   when (down || up)
       $ playSound $ sndHover sound'
 
    when enter
@@ -158,7 +159,57 @@ updateScene (ScnLevelEditorSelect (SceneLevelEditorSelect lvls i)) sound' = do
 
       in return $ ScnLevelEditorSelect $ SceneLevelEditorSelect lvls i_
 
-updateScene (ScnNewLevel initial@(SceneNewLevel name dims@(Dims w h d) item)) sound' = do
+updateScene (ScnOptions (SceneOptions sel _ finished)) sound' opts = do
+   esc <- isKeyPressed KeyEscape
+
+   if finished || esc then
+      return $ ScnMainMenu mkMainMenu
+   else do
+      down  <- isKeyPressed KeyDown
+      up    <- isKeyPressed KeyUp
+      right <- isKeyPressed KeyRight
+      left  <- isKeyPressed KeyLeft
+      enter <- isKeyPressed KeyEnter
+
+      when (down || up || right || left)
+         $ playSound $ sndHover sound'
+
+      let selectedItem_
+            | up        = prevOptionsItem sel
+            | down      = nextOptionsItem sel
+            | otherwise = sel
+
+      let options_ = case selectedItem_ of
+            OptMusicVolume
+               | right     -> opts { musicVolume = min 100 (musicVolume opts + 10) }
+               | left      -> opts { musicVolume = max 0   (musicVolume opts - 10) }
+               | otherwise -> opts
+
+            OptSoundVolume
+               | right     -> opts { soundVolume = min 100 (soundVolume opts + 10) }
+               | left      -> opts { soundVolume = max 0   (soundVolume opts - 10) }
+               | otherwise -> opts
+
+            OptFullscreen
+               | enter     -> opts { isFullscreen = not (isFullscreen opts) }
+               | otherwise -> opts
+
+            _ -> opts
+
+      case (enter, selectedItem_) of
+         (True, OptSave) -> do
+            playSound $ sndClick sound'
+            saveConfig options_
+            return $ ScnOptions $ SceneOptions selectedItem_ options_ True
+
+         (True, OptCancel) -> do
+            playSound $ sndClick sound'
+            oldOptions_ <- loadOrCreateOptions
+            return $ ScnOptions $ SceneOptions selectedItem_ oldOptions_ True
+
+         _ -> return $ ScnOptions $ SceneOptions selectedItem_ options_ False
+
+updateScene (ScnNewLevel initial@(SceneNewLevel name dims@(Dims w h d) item)) sound' _ = do
    esc <- isKeyPressed KeyEscape
 
    if esc then
@@ -170,7 +221,7 @@ updateScene (ScnNewLevel initial@(SceneNewLevel name dims@(Dims w h d) item)) so
       submit    <- isKeyPressed KeyEnter
       key       <- getCharPressed
 
-      when (down || up) 
+      when (down || up)
          $ playSound $ sndHover sound'
 
       if submit && item == SNLSubmit then
@@ -204,9 +255,9 @@ updateScene (ScnNewLevel initial@(SceneNewLevel name dims@(Dims w h d) item)) so
 
              nlLabel = take 20 $ case item of
                SNLEditLabel ->
-                  if (key >= ord 'a' && key <= ord 'z') 
-                     || (key >= ord 'A' && key <= ord 'Z') 
-                     || key == ord '_' 
+                  if (key >= ord 'a' && key <= ord 'z')
+                     || (key >= ord 'A' && key <= ord 'Z')
+                     || key == ord '_'
                   then
                      name ++ [chr key]
 
@@ -220,9 +271,18 @@ updateScene (ScnNewLevel initial@(SceneNewLevel name dims@(Dims w h d) item)) so
 
          in return $ ScnNewLevel $ SceneNewLevel {..}
 
-updateScene ScnExit _ = pure ScnExit
+updateScene ScnExit _ _ = pure ScnExit
 
-updateScene (ScnOptions (SceneOptions _)) _ = do
-   return $ ScnMainMenu mkMainMenu
+updateScene _ _ _ = todo__ "update other scenes"
 
-updateScene _ _ = todo' "update other scenes"
+getCamera :: Scene -> Camera3D
+getCamera sc = case sc of
+   ScnMainMenu _          -> mainMenuCam
+   ScnOptions _           -> mainMenuCam
+   ScnConnect _           -> mainMenuCam
+   ScnExit                -> mainMenuCam
+   ScnSingleplayer _      -> mainMenuCam
+   ScnLevelEditorSelect _ -> mainMenuCam
+   ScnNewLevel _          -> mainMenuCam
+   ScnLevelEditor (SceneLevelEditor cam _ _) -> cam
+   ScnGame _ -> todo__ "game camera"

@@ -2,22 +2,22 @@
 module Main where
 
 import Raylib.Util (withWindow, mode3D, drawing)
-import Raylib.Core (clearBackground, disableCursor, toggleFullscreen, getRenderWidth, getRenderHeight, setExitKey, windowShouldClose)
+import Raylib.Core (clearBackground, disableCursor, getRenderWidth, getRenderHeight, setExitKey, windowShouldClose)
 import Raylib.Types (pattern Vector3, Color (Color), KeyboardKey (KeyNull))
 import Raylib.Core.Models (drawModelEx, drawGrid, drawCube)
 import Raylib.Core.Text (drawFPS)
 import Control.Monad (when, forM_)
 import GameState (Scene(..), State (showFps, currentScene, camera), initState, updateState, isExitState)
-import Utils (loadTexturedModel, drawButton, todo', drawTextCentered, drawTextInput, showOrEmpty)
-import MainMenu (SceneMainMenu(SceneMainMenu), MainMenuItem (..), drawMsgBox)
+import Utils (loadTexturedModel, drawButton, todo__, drawTextCentered, drawTextInput, showOrEmpty)
+import MainMenu (SceneMainMenu(SceneMainMenu), MainMenuItem (..), drawMsgBox, setFullScreen)
 import Raylib.Util.Colors
 import System.Directory (getDirectoryContents, createDirectoryIfMissing)
 import System.FilePath (takeExtension)
 import LevelEditor (LevelDescr (..), SceneLevelEditorSelect (SceneLevelEditorSelect), SceneNewLevel (SceneNewLevel), SNLItem (..))
 import Level (Dims(Dims))
-import Sounds (loadSounds, Sounds (mscMenuBg))
+import Sounds (loadSounds, Sounds (mscMenuBg), updateSounds)
 import Raylib.Core.Audio (initAudioDevice, closeAudioDevice, updateMusicStream, isMusicStreamPlaying)
-import Options (loadOrCreateOptions)
+import Options (loadOrCreateOptions, SceneOptions (SceneOptions), OptionsItem (..), Options (..))
 
 title :: String
 title = "T.R.A.N.S.M.I.S.S.I.O.N"
@@ -27,16 +27,19 @@ skyColor = Color 171 214 255 255
 
 main :: IO ()
 main = do
-   withWindow 800 600 title 60 $ \win -> do
+   withWindow 1024 768 title 60 $ \win -> do
       initAudioDevice
       disableCursor
-      toggleFullscreen
       setExitKey KeyNull
 
-      logo         <- loadTexturedModel win "assets/logo.obj" "assets/logo.png"
-      sounds       <- loadSounds win
+      logo    <- loadTexturedModel win "assets/logo.obj" "assets/logo.png"
+      options <- loadOrCreateOptions
+
+      sounds <- loadSounds win
+      updateSounds sounds options
+
       loadedLevels <- loadLevels
-      options      <- loadOrCreateOptions
+      setFullScreen (isFullscreen options)
 
       whileWindowOpen (initState loadedLevels sounds options) $
          \s -> do
@@ -64,6 +67,22 @@ main = do
                   ScnGame _ -> do
                      clearBackground skyColor
 
+                  ScnOptions (SceneOptions sel opts _) -> do
+                     clearBackground black
+                     drawTextCentered "Options" screenSize (-240) 48 white
+
+                     drawButton ("Music Volume: " ++ show (musicVolume opts)) 
+                        screenSize (-180) OptMusicVolume sel
+                     drawButton ("Sound Volume: " ++ show (soundVolume opts)) 
+                        screenSize (-120) OptSoundVolume sel
+                     drawButton ("Fullscreen: " ++ if isFullscreen opts then "On" else "Off") 
+                        screenSize (-60) OptFullscreen sel
+
+                     drawButton "Save" 
+                        screenSize 40 OptSave sel
+                     drawButton "Cancel" 
+                        screenSize 100 OptCancel sel
+
                   ScnLevelEditorSelect (SceneLevelEditorSelect lvls sel) -> do
                      clearBackground black
                      drawButton "New level..." screenSize (-210) 0 sel
@@ -71,6 +90,7 @@ main = do
                      if null lvls then
                         drawTextCentered "No levels found" screenSize 0 48 white
                      else
+                        -- // TODO: scroll if too many levels
                         forM_ (zip [1..] lvls) $
                            \(i, LevelDescr name) ->  
                               drawButton name screenSize (-180 + i * 60) i sel 
@@ -102,11 +122,8 @@ main = do
                   ScnExit -> do
                      closeAudioDevice (Just win)
                      return ()
-                     
-                  ScnOptions _ -> do
-                     clearBackground red
 
-                  _ -> todo' "draw another scenes"
+                  _ -> todo__ "draw another scenes"
 
                when (showFps s) $ drawFPS 0 0
 

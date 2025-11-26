@@ -74,8 +74,8 @@ drawTextCentered label (width, height) offsetY fontSize color = do
    measure <- measureText label fontSize
    drawText label ((width - measure) `div` 2) (((height - fontSize) `div` 2) + offsetY) fontSize color
 
-todo' :: String -> a
-todo' err = error $ "TODO: " ++ err
+todo__ :: String -> a
+todo__ err = error $ "TODO: " ++ err
 
 unreachable' :: a
 unreachable' = error "This part of code must be unreachable"
@@ -87,6 +87,16 @@ eitherToMaybe (Right a) = Just a
 safeInit :: [a] -> [a]
 safeInit [] = []
 safeInit xs = init xs
+
+readBool :: String -> Maybe Bool
+readBool "True"  = Just True
+readBool "False" = Just False
+readBool _       = Nothing
+
+readInt :: String -> Maybe Int
+readInt s = case reads s of
+   [(n, "")] -> Just n
+   _         -> Nothing
 
 isKeyPressedMaybeRepeat :: KeyboardKey -> IO Bool
 isKeyPressedMaybeRepeat k = (||) <$> isKeyPressed k <*> isKeyPressedRepeat k
