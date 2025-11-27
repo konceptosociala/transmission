@@ -81,6 +81,7 @@ blockTypeCoords BTSolid   = (0, 0)
 blockTypeCoords BTHeight  = (0.5, 0)
 blockTypeCoords BTPunch   = (0, 0.5)
 blockTypeCoords BTFinish  = (0.5, 0.5)
+
 freezeLevel :: MU.PrimMonad m
    => MLevel (MU.PrimState m)
    -> m Level

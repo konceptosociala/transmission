@@ -1,9 +1,13 @@
 module Constants where
 
 import Raylib.Types
+import Data.Binary (Word16)
 
 targetFps :: Int
 targetFps = 60
+
+chunkSize :: Word16
+chunkSize = 16
 
 title :: String
 title = "T.R.A.N.S.M.I.S.S.I.O.N"
@@ -18,4 +22,4 @@ windowHeight :: Int
 windowHeight = 768
 
 levelMaxSize :: Integral a => a
-levelMaxSize = 64
+levelMaxSize = 256

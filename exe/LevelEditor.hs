@@ -1,17 +1,20 @@
 {-# LANGUAGE PatternSynonyms #-}
 module LevelEditor where
    
-import Raylib.Types (Camera3D(..), pattern Vector3, CameraProjection (CameraPerspective), Matrix)
-import Raylib.Util.Math (matrixTranslate)
+import Raylib.Types (Camera3D(..), pattern Vector3, CameraProjection (CameraPerspective))
 import Control.Monad.ST (RealWorld)
+import Control.Monad (foldM)
 import Level.Manipulate (deserializeMLevel, freezeLevel)
 import Utils (eitherToMaybe)
 import qualified Data.ByteString as BS
-import Level.Mesh (generateMesh)
+import Level.Mesh (generateChunkMesh)
 import Level
 import Raylib.Types.Core.Models
-import Debug.Trace (traceM)
 import Raylib.Core.Models (uploadMesh)
+import qualified Data.HashMap.Strict as HM
+import Constants (chunkSize)
+import System.Directory
+import System.FilePath
 
 newtype LevelDescr = LevelDescr FilePath
 
@@ -49,11 +52,25 @@ data SceneLevelEditor = SceneLevelEditor
    { leCam :: Camera3D
    , leCurrentLevel :: MLevel RealWorld
    , leLevelDescr :: LevelDescr
-   , leCurrentMesh :: Mesh
+   , leChunkMeshes :: HM.HashMap (Int, Int, Int) Mesh
    , leSelectedBlock :: Maybe (Int, Int, Int)
    , leCurrentBlockType :: BlockType
-   , leMeshMatrix :: Matrix
    }
+
+worldToChunkCoord :: (Int, Int, Int) -> (Int, Int, Int)
+worldToChunkCoord (x, y, z) = 
+   ( x `div` fromIntegral chunkSize 
+   , y `div` fromIntegral chunkSize
+   , z `div` fromIntegral chunkSize
+   )
+
+getAllChunkCoords :: Dims -> [(Int, Int, Int)]
+getAllChunkCoords (Dims w h d) = 
+   [ (cx, cy, cz)
+   | cx <- [0 .. (fromIntegral w - 1) `div` fromIntegral chunkSize]
+   , cy <- [0 .. (fromIntegral h - 1) `div` fromIntegral chunkSize]
+   , cz <- [0 .. (fromIntegral d - 1) `div` fromIntegral chunkSize]
+   ]
 
 leCamDefault :: Camera3D
 leCamDefault = Camera3D
@@ -66,15 +83,17 @@ leCamDefault = Camera3D
 
 mkSceneLevelEditor :: MLevel RealWorld -> LevelDescr -> IO SceneLevelEditor
 mkSceneLevelEditor lvl descr = do
-   m_ <- generateMesh lvl
-   mesh <- uploadMesh m_ False
-   traceM (show mesh)
-   let Dims w _ d = mlvlDims lvl
+   let dims = mlvlDims lvl
+   let chunkCoords = getAllChunkCoords dims
+   
+   chunks <- foldM genMesh HM.empty chunkCoords   
+   return $ SceneLevelEditor leCamDefault lvl descr chunks Nothing BTSolid
 
-   let offsetX = negate (fromIntegral (w `div` 2))
-   let offsetZ = negate (fromIntegral (d `div` 2))
-   let meshMatrix = matrixTranslate offsetX 0.0 offsetZ
-   return $ SceneLevelEditor leCamDefault lvl descr mesh Nothing BTSolid meshMatrix
+   where
+      genMesh hm coord = do
+         m_ <- generateChunkMesh lvl chunkSize coord
+         mesh <- uploadMesh m_ False
+         return $ HM.insert coord mesh hm
 
 loadMLevel :: LevelDescr -> IO (Maybe (MLevel RealWorld))
 loadMLevel (LevelDescr filename) = do
@@ -84,3 +103,10 @@ loadMLevel (LevelDescr filename) = do
 
 loadLevel :: LevelDescr -> IO (Maybe Level)
 loadLevel d = traverse freezeLevel =<< loadMLevel d
+
+loadLevels :: IO [LevelDescr]
+loadLevels = do
+   createDirectoryIfMissing False "levels"
+   files <- getDirectoryContents "levels"
+   let lvlFiles = filter (\f -> takeExtension f == ".lvl") files
+   return $ map LevelDescr lvlFiles

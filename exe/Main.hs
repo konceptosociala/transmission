@@ -10,8 +10,6 @@ import GameState (Scene(..), State (showFps, currentScene, camera), initState, u
 import Utils
 import MainMenu (SceneMainMenu(SceneMainMenu), MainMenuItem (..), drawMsgBox, setFullScreen)
 import Raylib.Util.Colors
-import System.Directory (getDirectoryContents, createDirectoryIfMissing)
-import System.FilePath (takeExtension)
 import LevelEditor (LevelDescr (..), SceneLevelEditorSelect (SceneLevelEditorSelect), SceneNewLevel (SceneNewLevel), SNLItem (..), SceneLevelEditor (SceneLevelEditor))
 import Level (Dims(Dims), MLevel (MLevel))
 import Sounds (loadSounds, Sounds (mscMenuBg), updateSounds)
@@ -19,6 +17,8 @@ import Raylib.Core.Audio (initAudioDevice, closeAudioDevice, updateMusicStream, 
 import Options (loadOrCreateOptions, SceneOptions (SceneOptions), OptionsItem (..), Options (..))
 import Constants
 import Raylib.Core.Shapes (drawRectangle)
+import qualified Data.HashMap.Strict as HM
+import Raylib.Util.Math (matrixTranslate)
 
 main :: IO ()
 main = do
@@ -35,10 +35,10 @@ main = do
       sounds <- loadSounds win
       updateSounds sounds options
 
-      loadedLevels <- loadLevels
+      -- loadedLevels <- loadLevels
       setFullScreen (isFullscreen options)
 
-      whileWindowOpen (initState loadedLevels sounds options) $
+      whileWindowOpen (initState sounds options) $
          \s -> do
             menuBgPlaying <- isMusicStreamPlaying $ mscMenuBg sounds
             when menuBgPlaying
@@ -92,11 +92,20 @@ main = do
                            \(i, LevelDescr name) ->  
                               drawButton name screenSize (-180 + i * 60) i sel 
 
-                  ScnLevelEditor (SceneLevelEditor _ (MLevel (Dims w h d) _) (LevelDescr name) mesh sel mode matrix) -> do
+                  ScnLevelEditor (SceneLevelEditor _ (MLevel (Dims w h d) _) (LevelDescr name) meshes sel mode) -> do
                      clearBackground black
                      mode3D (camera s) $ do
                         drawGrid (levelMaxSize + 3) 1.0
-                        drawMesh mesh mainMat matrix
+                        let offsetX = negate (fromIntegral (w `div` 2))
+                        let offsetZ = negate (fromIntegral (d `div` 2))
+
+                        forM_ (HM.toList meshes) $ \((cx, cy, cz), mesh) -> do
+                           let chunkOffsetX = fromIntegral cx * fromIntegral chunkSize
+                           let chunkOffsetY = fromIntegral cy * fromIntegral chunkSize
+                           let chunkOffsetZ = fromIntegral cz * fromIntegral chunkSize
+                           let matrix = matrixTranslate (offsetX + chunkOffsetX) chunkOffsetY (offsetZ + chunkOffsetZ)
+                           drawMesh mesh mainMat matrix
+
                         case sel of
                            Just (x, y, z) -> 
                               drawThickCube (x, y, z) 5.0 green
@@ -139,13 +148,6 @@ main = do
                when (showFps s) $ drawFPS 0 0
 
             updateState s
-
-loadLevels :: IO [LevelDescr]
-loadLevels = do
-   createDirectoryIfMissing False "levels"
-   files <- getDirectoryContents "levels"
-   let lvlFiles = filter (\f -> takeExtension f == ".lvl") files
-   return $ map LevelDescr lvlFiles
 
 whileWindowOpen :: State -> (State -> IO State) -> IO ()
 whileWindowOpen state f = do

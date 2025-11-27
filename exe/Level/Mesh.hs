@@ -97,7 +97,69 @@ generateMesh lvl = do
       ]
 
    freezeMesh mbFinal
-   -- uploadMesh mesh False
+
+generateChunkMesh :: MLevel MU.RealWorld -> Word16 -> (Int, Int, Int) -> IO Mesh
+generateChunkMesh lvl chunkSize (cx, cy, cz) = do
+   let Dims w h d = mlvlDims lvl
+   
+   let chunkX0 = fromIntegral cx * fromIntegral chunkSize
+   let chunkY0 = fromIntegral cy * fromIntegral chunkSize
+   let chunkZ0 = fromIntegral cz * fromIntegral chunkSize
+   
+   let chunkX1 = min (chunkX0 + fromIntegral chunkSize) w
+   let chunkY1 = min (chunkY0 + fromIntegral chunkSize) h
+   let chunkZ1 = min (chunkZ0 + fromIntegral chunkSize) d
+   
+   let f = fromIntegral
+   let chunkW = chunkX1 - chunkX0
+   let chunkH = chunkY1 - chunkY0
+   let chunkD = chunkZ1 - chunkZ0
+   let maxFaces = f chunkW * f chunkH * f chunkD * 6
+   
+   mb <- newMeshBuilder maxFaces
+   
+   -- Process blocks with chunk-relative coordinates
+   mbFinal <- foldM (processBlockChunk lvl w h d chunkX0 chunkY0 chunkZ0) mb
+      [ (x, y, z)
+      | x <- [chunkX0 .. chunkX1 - 1]
+      , y <- [chunkY0 .. chunkY1 - 1]
+      , z <- [chunkZ0 .. chunkZ1 - 1]
+      ]
+   
+   freezeMesh mbFinal
+
+-- Process block for chunk mesh (using relative coordinates)
+processBlockChunk :: MU.PrimMonad m
+  => MLevel (MU.PrimState m)
+  -> Word16 -> Word16 -> Word16  -- Level dimensions
+  -> Word16 -> Word16 -> Word16  -- Chunk offset
+  -> MeshBuilder (MU.PrimState m)
+  -> (Word16, Word16, Word16)    -- Absolute block coords
+  -> m (MeshBuilder (MU.PrimState m))
+processBlockChunk lvl w h d chunkX0 chunkY0 chunkZ0 mb (x, y, z) = do
+   currentBlock <- getBlockSolid lvl (x, y, z)
+   case blockToType =<< currentBlock of
+      Nothing -> return mb
+      Just ty -> do
+         hasTop    <- if y == h - 1 then return False else hasBlock lvl (x, y+1, z)
+         hasBottom <- if y == 0     then return False else hasBlock lvl (x, y-1, z)
+         hasFront  <- if z == d - 1 then return False else hasBlock lvl (x, y, z+1)
+         hasBack   <- if z == 0     then return False else hasBlock lvl (x, y, z-1)
+         hasLeft   <- if x == 0     then return False else hasBlock lvl (x-1, y, z)
+         hasRight  <- if x == w - 1 then return False else hasBlock lvl (x+1, y, z)
+
+         -- Use chunk-relative coordinates for mesh generation
+         let relX = x - chunkX0
+         let relY = y - chunkY0
+         let relZ = z - chunkZ0
+
+         mb1 <- if not hasTop    then addFaceTop    (relX,relY,relZ) ty mb else return mb
+         mb2 <- if not hasBottom then addFaceBottom (relX,relY,relZ) ty mb1 else return mb1
+         mb3 <- if not hasFront  then addFaceFront  (relX,relY,relZ) ty mb2 else return mb2
+         mb4 <- if not hasBack   then addFaceBack   (relX,relY,relZ) ty mb3 else return mb3
+         mb5 <- if not hasLeft   then addFaceLeft   (relX,relY,relZ) ty mb4 else return mb4
+         mb6 <- if not hasRight  then addFaceRight  (relX,relY,relZ) ty mb5 else return mb5
+         return mb6
 
 processBlock :: MU.PrimMonad m
   => MLevel (MU.PrimState m)

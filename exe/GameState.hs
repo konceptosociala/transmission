@@ -18,13 +18,17 @@ import Sounds
 import Raylib.Core.Audio (playSound, isMusicStreamPlaying, stopMusicStream)
 import Raylib.Core.Camera (updateCamera)
 import Raylib.Core.Models (getRayCollisionMesh, getRayCollisionQuad, uploadMesh)
-import Constants (windowWidth, windowHeight, levelMaxSize)
-import Level.Mesh (generateMesh)
+import Constants (windowWidth, windowHeight, levelMaxSize, chunkSize)
+import Level.Mesh (generateChunkMesh)
+import qualified Data.HashMap.Strict as HM
+import Raylib.Util.Math (matrixTranslate)
+import Data.List (minimumBy)
+import Data.Ord (comparing)
 
 data State = State
    { camera :: Camera3D
    , optionsValue :: Options
-   , loadedLevels :: [LevelDescr]
+   -- , loadedLevels :: [LevelDescr]
    , currentScene :: Scene
    , showFps :: Bool
    , sounds :: Sounds
@@ -47,11 +51,11 @@ isExitState state =
       ScnExit -> True
       _       -> False
 
-initState :: [LevelDescr] -> Sounds -> Options -> State
-initState loadedLevels sounds options = State
+initState :: Sounds -> Options -> State
+initState sounds options = State
    { showFps = False
    , optionsValue = options
-   , loadedLevels = loadedLevels
+   -- , loadedLevels = loadedLevels
    , camera = Camera3D
       { camera3D'position = Vector3 3 1 0
       , camera3D'target = Vector3 0 1 0
@@ -78,17 +82,20 @@ updateState state = do
          _ -> optionsValue state
 
    -- Open scene from main menu
-   let currentScene_ = case updatedScene of
+   currentScene_ <- case updatedScene of
          initial@(ScnMainMenu (SceneMainMenu item selected _ _)) ->
             if selected
                then case item of
-                  MmiSingleplayer -> ScnSingleplayer SceneSingleplayer
-                  MmiConnect      -> ScnConnect SceneConnect
-                  MmiLevelEditor  -> ScnLevelEditorSelect $ SceneLevelEditorSelect (loadedLevels state) 0
-                  MmiOptions      -> ScnOptions (SceneOptions OptMusicVolume (optionsValue state) False)
-                  MmiExit         -> ScnExit
-               else initial
-         other -> other
+                  MmiSingleplayer -> pure $ ScnSingleplayer SceneSingleplayer
+                  MmiConnect      -> pure $ ScnConnect SceneConnect
+                  MmiLevelEditor  -> do
+                     loadedLevels <- loadLevels
+                     pure $ ScnLevelEditorSelect $ SceneLevelEditorSelect loadedLevels 0
+                     
+                  MmiOptions      -> pure $ ScnOptions (SceneOptions OptMusicVolume (optionsValue state) False)
+                  MmiExit         -> pure ScnExit
+               else pure initial
+         other -> pure other
 
    -- Check if we need to apply options
    case currentScene_ of
@@ -110,7 +117,7 @@ updateScene (ScnGame _) _ _ = pure $ ScnGame SceneGame
 
 updateScene (ScnMainMenu mainMenu) sound' _ = ScnMainMenu <$> updateMainMenu mainMenu sound'
 
-updateScene (ScnLevelEditor (SceneLevelEditor cam lvl (LevelDescr name) mesh _ mode matrix)) sound' _ = do
+updateScene (ScnLevelEditor (SceneLevelEditor cam lvl (LevelDescr name) meshes _ mode)) sound' _ = do
    isMusic <- isMusicStreamPlaying $ mscMenuBg sound'
 
    when isMusic
@@ -136,8 +143,24 @@ updateScene (ScnLevelEditor (SceneLevelEditor cam lvl (LevelDescr name) mesh _ m
       let screenCenter = Vector2 (fromIntegral windowWidth / 2.0) (fromIntegral windowHeight / 2.0)
       ray <- getScreenToWorldRay screenCenter leCam_
 
-      let rc = getRayCollisionMesh ray mesh matrix
       let Dims w _ d = mlvlDims lvl
+      let offsetX = negate (fromIntegral (w `div` 2))
+      let offsetZ = negate (fromIntegral (d `div` 2))
+      
+      -- Check collision against ALL chunk meshes with their proper transforms
+      let chunkCollisions = 
+            [ let chunkOffsetX = fromIntegral cx * fromIntegral chunkSize
+                  chunkOffsetY = fromIntegral cy * fromIntegral chunkSize
+                  chunkOffsetZ = fromIntegral cz * fromIntegral chunkSize
+                  matrix = matrixTranslate (offsetX + chunkOffsetX) chunkOffsetY (offsetZ + chunkOffsetZ)
+              in getRayCollisionMesh ray mesh matrix
+            | ((cx, cy, cz), mesh) <- HM.toList meshes
+            ]
+      
+      let rc = case filter rayCollision'hit chunkCollisions of
+            [] -> RayCollision False 0 (Vector3 0 0 0) (Vector3 0 0 0)
+            hits -> minimumBy (comparing rayCollision'distance) hits
+            
       let floorSize = fromIntegral (max w d)
       let frc = getRayCollisionQuad ray
             (Vector3 (negate floorSize/2) 0 (floorSize/2))
@@ -183,7 +206,7 @@ updateScene (ScnLevelEditor (SceneLevelEditor cam lvl (LevelDescr name) mesh _ m
                   )
             | otherwise = Nothing
 
-      newMesh <- case (selectedInside, selectedOutside) of
+      newMeshes <- case (selectedInside, selectedOutside) of
          (Just (xi, yi, zi), Just (xo, yo, zo)) -> do
             let localXi = xi + (fromIntegral w `div` 2)
             let localZi = zi + (fromIntegral d `div` 2)
@@ -193,20 +216,28 @@ updateScene (ScnLevelEditor (SceneLevelEditor cam lvl (LevelDescr name) mesh _ m
 
             if mouseLeft then do
                setBlock lvl (fromIntegral localXo, fromIntegral yo, fromIntegral localZo) BSolid
-               m <- generateMesh lvl
-               uploadMesh m False
+               
+               -- Regenerate affected chunk only (use local coordinates)
+               let chunkCoord = worldToChunkCoord (fromIntegral localXo, fromIntegral yo, fromIntegral localZo)
+               m <- generateChunkMesh lvl chunkSize chunkCoord
+               mesh <- uploadMesh m False
+               return $ HM.insert chunkCoord mesh meshes
 
             else if mouseRight then do
                setBlock lvl (fromIntegral localXi, fromIntegral yi, fromIntegral localZi) BEmpty
-               m <- generateMesh lvl
-               uploadMesh m False
+               
+               -- Regenerate affected chunk only (use local coordinates)
+               let chunkCoord = worldToChunkCoord (fromIntegral localXi, fromIntegral yi, fromIntegral localZi)
+               m <- generateChunkMesh lvl chunkSize chunkCoord
+               mesh <- uploadMesh m False
+               return $ HM.insert chunkCoord mesh meshes
                
             else
-               return mesh
+               return meshes
 
-         _ -> return mesh
+         _ -> return meshes
 
-      return $ ScnLevelEditor (SceneLevelEditor leCam_ lvl (LevelDescr name) newMesh selectedInside mode matrix)
+      return $ ScnLevelEditor (SceneLevelEditor leCam_ lvl (LevelDescr name) newMeshes selectedInside mode)
    else
       return $ ScnMainMenu mkMainMenu
 
