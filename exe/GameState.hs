@@ -17,7 +17,7 @@ import qualified Data.ByteString as BS
 import Sounds
 import Raylib.Core.Audio (playSound, isMusicStreamPlaying, stopMusicStream)
 import Raylib.Core.Camera (updateCamera)
-import Raylib.Core.Models (getRayCollisionMesh, getRayCollisionQuad)
+import Raylib.Core.Models (getRayCollisionMesh, getRayCollisionQuad, uploadMesh)
 import Constants (windowWidth, windowHeight, levelMaxSize)
 import Level.Mesh (generateMesh)
 
@@ -193,11 +193,13 @@ updateScene (ScnLevelEditor (SceneLevelEditor cam lvl (LevelDescr name) mesh _ m
 
             if mouseLeft then do
                setBlock lvl (fromIntegral localXo, fromIntegral yo, fromIntegral localZo) BSolid
-               generateMesh lvl
+               m <- generateMesh lvl
+               uploadMesh m False
 
             else if mouseRight then do
                setBlock lvl (fromIntegral localXi, fromIntegral yi, fromIntegral localZi) BEmpty
-               generateMesh lvl
+               m <- generateMesh lvl
+               uploadMesh m False
                
             else
                return mesh

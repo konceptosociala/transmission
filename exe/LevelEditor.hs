@@ -8,9 +8,10 @@ import Level.Manipulate (deserializeMLevel, freezeLevel)
 import Utils (eitherToMaybe)
 import qualified Data.ByteString as BS
 import Level.Mesh (generateMesh)
-
 import Level
 import Raylib.Types.Core.Models
+import Debug.Trace (traceM)
+import Raylib.Core.Models (uploadMesh)
 
 newtype LevelDescr = LevelDescr FilePath
 
@@ -65,9 +66,11 @@ leCamDefault = Camera3D
 
 mkSceneLevelEditor :: MLevel RealWorld -> LevelDescr -> IO SceneLevelEditor
 mkSceneLevelEditor lvl descr = do
-   mesh <- generateMesh lvl
+   m_ <- generateMesh lvl
+   mesh <- uploadMesh m_ False
+   traceM (show mesh)
    let Dims w _ d = mlvlDims lvl
-   -- Center the mesh horizontally, keep Y at 0, align to grid
+
    let offsetX = negate (fromIntegral (w `div` 2))
    let offsetZ = negate (fromIntegral (d `div` 2))
    let meshMatrix = matrixTranslate offsetX 0.0 offsetZ

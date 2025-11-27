@@ -16,7 +16,6 @@ import Data.Word (Word16)
 import Level.Binary
 import Data.Function ((&))
 import Data.Maybe (isJust)
-import Raylib.Types
 
 dimsContain :: Dims -> (Word16, Word16, Word16) -> Bool
 dimsContain (Dims w h d) (x, y, z) =
@@ -77,12 +76,11 @@ blockToType (BHeight _ _)  = Just BTHeight
 blockToType BPunch         = Just BTPunch
 blockToType BFinish        = Just BTFinish
 
-blockTypeCoords :: BlockType -> Vector2
-blockTypeCoords BTSolid   = Vector2 0 0
-blockTypeCoords BTHeight  = Vector2 0.5 0
-blockTypeCoords BTPunch   = Vector2 0 0.5
-blockTypeCoords BTFinish  = Vector2 0.5 0.5
-
+blockTypeCoords :: BlockType -> (Float, Float)
+blockTypeCoords BTSolid   = (0, 0)
+blockTypeCoords BTHeight  = (0.5, 0)
+blockTypeCoords BTPunch   = (0, 0.5)
+blockTypeCoords BTFinish  = (0.5, 0.5)
 freezeLevel :: MU.PrimMonad m
    => MLevel (MU.PrimState m)
    -> m Level

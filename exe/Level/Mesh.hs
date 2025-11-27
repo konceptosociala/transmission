@@ -1,16 +1,27 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Redundant return" #-}
 module Level.Mesh where
 
 import Raylib.Types
-import Data.Function ((&))
-import Raylib.Core.Models (uploadMesh)
-import Level (Dims (Dims), MLevel (mlvlDims), BlockType (BTSolid))
+import Level
 import Level.Manipulate
-import Control.Monad.ST (RealWorld)
-import Control.Monad (foldM)
+import Control.Monad (forM_, foldM)
 import qualified Data.Vector.Unboxed.Mutable as MU
 import qualified Data.Vector.Unboxed as U
 import Utils
+import Data.Binary (Word16)
+
+cube :: IO Mesh
+cube = do
+   mb0 <- newMeshBuilder 6
+   mb1 <- addFaceTop      (0 :: Int, 0, 0) BTSolid mb0
+   mb2 <- addFaceBottom   (0 :: Int, 0, 0) BTSolid mb1
+   mb3 <- addFaceFront    (0 :: Int, 0, 0) BTSolid mb2
+   mb4 <- addFaceBack     (0 :: Int, 0, 0) BTSolid mb3
+   mb5 <- addFaceLeft     (0 :: Int, 0, 0) BTSolid mb4
+   mb6 <- addFaceRight    (0 :: Int, 0, 0) BTSolid mb5
+   freezeMesh mb6
 
 data MeshBuilder s = MeshBuilder
    { mbVertices      :: MU.MVector s Float
@@ -22,8 +33,28 @@ data MeshBuilder s = MeshBuilder
    , mbTriangleCount :: Int
    }
 
-freezeMesh :: MeshBuilder RealWorld -> IO Mesh
-freezeMesh MeshBuilder{..} = do
+newMeshBuilder :: MU.PrimMonad m
+   => Int
+   -> m (MeshBuilder (MU.PrimState m))
+newMeshBuilder maxFaces = do
+   mv <- MU.new (maxFaces * 6 * 3)
+   mt <- MU.new (maxFaces * 6 * 2)
+   mn <- MU.new (maxFaces * 6 * 3)
+
+   return MeshBuilder
+      { mbVertices      = mv
+      , mbTexcoords     = mt
+      , mbNormals       = mn
+      , mbVertexOffset  = 0
+      , mbTexOffset     = 0
+      , mbNormOffset    = 0
+      , mbTriangleCount = 0
+      }
+
+freezeMesh :: MU.PrimMonad m
+   => MeshBuilder (MU.PrimState m)
+   -> m Mesh
+freezeMesh MeshBuilder {..} = do
     let vertCount = mbVertexOffset `div` 3
 
     vertices  <- U.unsafeFreeze (MU.slice 0 mbVertexOffset mbVertices)
@@ -50,299 +81,407 @@ freezeMesh MeshBuilder{..} = do
       , mesh'vboId         = Nothing
       }
 
-meshDefault :: Mesh
-meshDefault = Mesh
-   { mesh'vertexCount   = 0
-   , mesh'triangleCount = 0
-   , mesh'vertices      = []
-   , mesh'texcoords     = []
-   , mesh'texcoords2    = Nothing
-   , mesh'normals       = []
-   , mesh'tangents      = Nothing
-   , mesh'colors        = Nothing
-   , mesh'indices       = Nothing
-   , mesh'animVertices  = Nothing
-   , mesh'animNormals   = Nothing
-   , mesh'boneIds       = Nothing
-   , mesh'boneWeights   = Nothing
-   , mesh'boneMatrices  = Nothing
-   , mesh'boneCount     = 0
-   , mesh'vaoId         = 0
-   , mesh'vboId         = Nothing
-   }
-
-cube :: IO Mesh
-cube =
-   meshDefault
-      & addFaceTop      (0 :: Int, 0, 0) BTSolid
-      & addFaceBottom   (0 :: Int, 0, 0) BTSolid
-      & addFaceFront    (0 :: Int, 0, 0) BTSolid
-      & addFaceBack     (0 :: Int, 0, 0) BTSolid
-      & addFaceLeft     (0 :: Int, 0, 0) BTSolid
-      & addFaceRight    (0 :: Int, 0, 0) BTSolid
-      & flip uploadMesh False
-
-generateMesh :: MLevel RealWorld -> IO Mesh
+generateMesh :: MLevel MU.RealWorld -> IO Mesh
 generateMesh lvl = do
    let Dims w h d = mlvlDims lvl
+   let f = fromIntegral
+   let maxFaces = f w * f h * f d * 6
 
-   mesh <- foldM
-      (\m (x, y, z) -> do
-         currentBlock <- getBlockSolid lvl (x, y, z)
-         
-         case blockToType =<< currentBlock of
-            Just ty -> do
-               hasTop      <- if y == h - 1  then return False else hasBlock lvl (x, y + 1, z)
-               hasBottom   <- if y == 0      then return False else hasBlock lvl (x, y - 1, z)
-               hasFront    <- if z == d - 1  then return False else hasBlock lvl (x, y, z + 1)
-               hasBack     <- if z == 0      then return False else hasBlock lvl (x, y, z - 1)
-               hasLeft     <- if x == 0      then return False else hasBlock lvl (x - 1, y, z)
-               hasRight    <- if x == w - 1  then return False else hasBlock lvl (x + 1, y, z)
-               
-               return $ m
-                  & (if not hasTop     then addFaceTop      (x, y, z) ty else id)
-                  & (if not hasBottom  then addFaceBottom   (x, y, z) ty else id)
-                  & (if not hasFront   then addFaceFront    (x, y, z) ty else id)
-                  & (if not hasBack    then addFaceBack     (x, y, z) ty else id)
-                  & (if not hasLeft    then addFaceLeft     (x, y, z) ty else id)
-                  & (if not hasRight   then addFaceRight    (x, y, z) ty else id)
-            _ -> return m
-      )
-      meshDefault
-      [ (x, y, z) | x <- [0 .. w - 1], y <- [0 .. h - 1], z <- [0 .. d - 1] ]
+   mb <- newMeshBuilder maxFaces   
 
-   uploadMesh mesh False
+   mbFinal <- foldM (processBlock lvl w h d) mb
+      [ (x, y, z)
+      | x <- [0 .. w - 1]
+      , y <- [0 .. h - 1]
+      , z <- [0 .. d - 1]
+      ]
 
-addFaceTop :: Integral a 
-  => (a, a, a) 
-  -> BlockType
-  -> Mesh 
-  -> Mesh
-addFaceTop (xi, yi, zi) ty mesh =
-   let normal = Vector3 0 1 0
-       (x, y, z) = (fromIntegral xi, fromIntegral yi, fromIntegral zi)
+   freezeMesh mbFinal
+   -- uploadMesh mesh False
 
-       texOffset = blockTypeCoords ty
+processBlock :: MU.PrimMonad m
+  => MLevel (MU.PrimState m)
+  -> Word16 -> Word16 -> Word16
+  -> MeshBuilder (MU.PrimState m)
+  -> (Word16, Word16, Word16)
+  -> m (MeshBuilder (MU.PrimState m))
+processBlock lvl w h d mb (x, y, z) = do
+   currentBlock <- getBlockSolid lvl (x, y, z)
+   case blockToType =<< currentBlock of
+      Nothing -> return mb
+      Just ty -> do
+         hasTop    <- if y == h - 1 then return False else hasBlock lvl (x, y+1, z)
+         hasBottom <- if y == 0     then return False else hasBlock lvl (x, y-1, z)
+         hasFront  <- if z == d - 1 then return False else hasBlock lvl (x, y, z+1)
+         hasBack   <- if z == 0     then return False else hasBlock lvl (x, y, z-1)
+         hasLeft   <- if x == 0     then return False else hasBlock lvl (x-1, y, z)
+         hasRight  <- if x == w - 1 then return False else hasBlock lvl (x+1, y, z)
 
-       vertexData = mesh'vertices mesh ++
-         [ Vector3 x (y + 1.0) z
-         , Vector3 x (y + 1.0) (z + 1.0)
-         , Vector3 (x + 1.0) (y + 1.0) z
-         , Vector3 (x + 1.0) (y + 1.0) z
-         , Vector3 x (y + 1.0) (z + 1.0)
-         , Vector3 (x + 1.0) (y + 1.0) (z + 1.0)
+         mb1 <- if not hasTop    then addFaceTop    (x,y,z) ty mb else return mb
+         mb2 <- if not hasBottom then addFaceBottom (x,y,z) ty mb1 else return mb1
+         mb3 <- if not hasFront  then addFaceFront  (x,y,z) ty mb2 else return mb2
+         mb4 <- if not hasBack   then addFaceBack   (x,y,z) ty mb3 else return mb3
+         mb5 <- if not hasLeft   then addFaceLeft   (x,y,z) ty mb4 else return mb4
+         mb6 <- if not hasRight  then addFaceRight  (x,y,z) ty mb5 else return mb5
+
+         return mb6
+
+addFaceTop :: (MU.PrimMonad m, Integral a)
+  => (a, a, a)
+  -> Level.BlockType
+  -> MeshBuilder (MU.PrimState m)
+  -> m (MeshBuilder (MU.PrimState m))
+addFaceTop (xi, yi, zi) ty mb =
+   let (x, y, z) = (fromIntegral xi, fromIntegral yi, fromIntegral zi)
+       (u, v) = blockTypeCoords ty
+
+       verts =
+         [ (x,       y + 1, z)
+         , (x,       y + 1, z + 1)
+         , (x + 1,   y + 1, z)
+         , (x + 1,   y + 1, z)
+         , (x,       y + 1, z + 1)
+         , (x + 1,   y + 1, z + 1)
          ]
 
-       texCoords = mesh'texcoords mesh ++
-         [ texOffset + Vector2 0.0 0.0
-         , texOffset + Vector2 0.0 0.5
-         , texOffset + Vector2 0.5 0.0
-         , texOffset + Vector2 0.5 0.0
-         , texOffset + Vector2 0.0 0.5
-         , texOffset + Vector2 0.5 0.5
+       uvs =
+         [ (u,       v)
+         , (u,       v + 0.5)
+         , (u + 0.5, v)
+         , (u + 0.5, v)
+         , (u,       v + 0.5)
+         , (u + 0.5, v + 0.5)
          ]
 
-       normals = mesh'normals mesh ++ replicate 6 normal
+       vo = mbVertexOffset mb
+       to = mbTexOffset mb
+       no = mbNormOffset mb
 
-   in mesh
-      { mesh'vertices      = vertexData
-      , mesh'normals       = normals
-      , mesh'texcoords     = texCoords
-      , mesh'triangleCount = mesh'triangleCount mesh + 2
-      , mesh'vertexCount   = mesh'vertexCount mesh + 6
-      }
+   in do
+      -- Write vertices
+      forM_ (zip [0..] verts) $ \(i, (vx,vy,vz)) -> do
+         let j = vo + i * 3
+         MU.write (mbVertices mb) j     vx
+         MU.write (mbVertices mb) (j+1) vy
+         MU.write (mbVertices mb) (j+2) vz
 
-addFaceBottom :: Integral a 
-  => (a, a, a) 
-  -> BlockType
-  -> Mesh 
-  -> Mesh
-addFaceBottom (xi, yi, zi) ty mesh =
-   let normal = Vector3 0 (-1) 0
-       (x, y, z) = (fromIntegral xi, fromIntegral yi, fromIntegral zi)
+      -- Write texcoords
+      forM_ (zip [0..] uvs) $ \(i, (tu,tv)) -> do
+         let j = to + i * 2
+         MU.write (mbTexcoords mb) j     tu
+         MU.write (mbTexcoords mb) (j+1) tv
 
-       texOffset = blockTypeCoords ty
+      -- Write normals
+      forM_ [0..5] $ \i -> do
+         let j = no + i * 3
+         MU.write (mbNormals mb) j     0
+         MU.write (mbNormals mb) (j+1) 1
+         MU.write (mbNormals mb) (j+2) 0
 
-       vertexData = mesh'vertices mesh ++
-         [ Vector3 x y z
-         , Vector3 (x + 1.0) y z
-         , Vector3 x y (z + 1.0)
-         , Vector3 (x + 1.0) y z
-         , Vector3 (x + 1.0) y (z + 1.0)
-         , Vector3 x y (z + 1.0)
+      -- update offsets
+      pure mb
+         { mbVertexOffset  = vo + 18
+         , mbTexOffset     = to + 12
+         , mbNormOffset    = no + 18
+         , mbTriangleCount = mbTriangleCount mb + 2
+         }
+
+addFaceBottom :: (MU.PrimMonad m, Integral a)
+  => (a, a, a)
+  -> Level.BlockType
+  -> MeshBuilder (MU.PrimState m)
+  -> m (MeshBuilder (MU.PrimState m))
+addFaceBottom (xi, yi, zi) ty mb =
+   let (x, y, z) = (fromIntegral xi, fromIntegral yi, fromIntegral zi)
+       (u, v) = blockTypeCoords ty
+
+       verts =
+         [ (x,       y, z)
+         , (x + 1,   y, z)
+         , (x,       y, z + 1)
+         , (x + 1,   y, z)
+         , (x + 1,   y, z + 1)
+         , (x,       y, z + 1)
          ]
 
-       texCoords = mesh'texcoords mesh ++
-         [ texOffset + Vector2 0.0 0.5
-         , texOffset + Vector2 0.5 0.5
-         , texOffset + Vector2 0.0 0.0
-         , texOffset + Vector2 0.5 0.5
-         , texOffset + Vector2 0.5 0.0
-         , texOffset + Vector2 0.0 0.0
+       uvs =
+         [ (u,       v + 0.5)
+         , (u + 0.5, v + 0.5)
+         , (u,       v)
+         , (u + 0.5, v + 0.5)
+         , (u + 0.5, v)
+         , (u,       v)
          ]
 
-       normals = mesh'normals mesh ++ replicate 6 normal
+       vo = mbVertexOffset mb
+       to = mbTexOffset mb
+       no = mbNormOffset mb
 
-   in mesh
-      { mesh'vertices      = vertexData
-      , mesh'normals       = normals
-      , mesh'texcoords     = texCoords
-      , mesh'triangleCount = mesh'triangleCount mesh + 2
-      , mesh'vertexCount   = mesh'vertexCount mesh + 6
-      }
+   in do
+      -- Write vertices
+      forM_ (zip [0..] verts) $ \(i, (vx,vy,vz)) -> do
+         let j = vo + i * 3
+         MU.write (mbVertices mb) j     vx
+         MU.write (mbVertices mb) (j+1) vy
+         MU.write (mbVertices mb) (j+2) vz
 
-addFaceFront :: Integral a 
-  => (a, a, a) 
-  -> BlockType
-  -> Mesh 
-  -> Mesh
-addFaceFront (xi, yi, zi) ty mesh =
-   let normal = Vector3 0 0 1
-       (x, y, z) = (fromIntegral xi, fromIntegral yi, fromIntegral zi)
+      -- Write texcoords
+      forM_ (zip [0..] uvs) $ \(i, (tu,tv)) -> do
+         let j = to + i * 2
+         MU.write (mbTexcoords mb) j     tu
+         MU.write (mbTexcoords mb) (j+1) tv
 
-       texOffset = blockTypeCoords ty
+      -- Write normals
+      forM_ [0..5] $ \i -> do
+         let j = no + i * 3
+         MU.write (mbNormals mb) j     0
+         MU.write (mbNormals mb) (j+1) (-1)
+         MU.write (mbNormals mb) (j+2) 0
 
-       vertexData = mesh'vertices mesh ++
-         [ Vector3 x y (z + 1.0)
-         , Vector3 (x + 1.0) y (z + 1.0)
-         , Vector3 x (y + 1.0) (z + 1.0)
-         , Vector3 (x + 1.0) y (z + 1.0)
-         , Vector3 (x + 1.0) (y + 1.0) (z + 1.0)
-         , Vector3 x (y + 1.0) (z + 1.0)
+      -- update offsets
+      pure mb
+         { mbVertexOffset  = vo + 18
+         , mbTexOffset     = to + 12
+         , mbNormOffset    = no + 18
+         , mbTriangleCount = mbTriangleCount mb + 2
+         }
+
+addFaceFront :: (MU.PrimMonad m, Integral a)
+  => (a, a, a)
+  -> Level.BlockType
+  -> MeshBuilder (MU.PrimState m)
+  -> m (MeshBuilder (MU.PrimState m))
+addFaceFront (xi, yi, zi) ty mb =
+   let (x, y, z) = (fromIntegral xi, fromIntegral yi, fromIntegral zi)
+       (u, v) = blockTypeCoords ty
+
+       verts =
+         [ (x,       y,       z + 1)
+         , (x + 1,   y,       z + 1)
+         , (x,       y + 1,   z + 1)
+         , (x + 1,   y,       z + 1)
+         , (x + 1,   y + 1,   z + 1)
+         , (x,       y + 1,   z + 1)
          ]
 
-       texCoords = mesh'texcoords mesh ++
-         [ texOffset + Vector2 0.5 0.0
-         , texOffset + Vector2 0.0 0.0
-         , texOffset + Vector2 0.5 0.5
-         , texOffset + Vector2 0.0 0.0
-         , texOffset + Vector2 0.0 0.5
-         , texOffset + Vector2 0.5 0.5
+       uvs =
+         [ (u + 0.5, v)
+         , (u,       v)
+         , (u + 0.5, v + 0.5)
+         , (u,       v)
+         , (u,       v + 0.5)
+         , (u + 0.5, v + 0.5)
          ]
 
-       normals = mesh'normals mesh ++ replicate 6 normal
+       vo = mbVertexOffset mb
+       to = mbTexOffset mb
+       no = mbNormOffset mb
 
-   in mesh
-      { mesh'vertices      = vertexData
-      , mesh'normals       = normals
-      , mesh'texcoords     = texCoords
-      , mesh'triangleCount = mesh'triangleCount mesh + 2
-      , mesh'vertexCount   = mesh'vertexCount mesh + 6
-      }
+   in do
+      -- Write vertices
+      forM_ (zip [0..] verts) $ \(i, (vx,vy,vz)) -> do
+         let j = vo + i * 3
+         MU.write (mbVertices mb) j     vx
+         MU.write (mbVertices mb) (j+1) vy
+         MU.write (mbVertices mb) (j+2) vz
 
-addFaceBack :: Integral a 
-  => (a, a, a) 
-  -> BlockType
-  -> Mesh 
-  -> Mesh
-addFaceBack (xi, yi, zi) ty mesh =
-   let normal = Vector3 0 0 (-1)
-       (x, y, z) = (fromIntegral xi, fromIntegral yi, fromIntegral zi)
+      -- Write texcoords
+      forM_ (zip [0..] uvs) $ \(i, (tu,tv)) -> do
+         let j = to + i * 2
+         MU.write (mbTexcoords mb) j     tu
+         MU.write (mbTexcoords mb) (j+1) tv
 
-       texOffset = blockTypeCoords ty
+      -- Write normals
+      forM_ [0..5] $ \i -> do
+         let j = no + i * 3
+         MU.write (mbNormals mb) j     0
+         MU.write (mbNormals mb) (j+1) 0
+         MU.write (mbNormals mb) (j+2) 1
 
-       vertexData = mesh'vertices mesh ++
-         [ Vector3 x y z
-         , Vector3 x (y + 1.0) z
-         , Vector3 (x + 1.0) y z
-         , Vector3 (x + 1.0) y z
-         , Vector3 x (y + 1.0) z
-         , Vector3 (x + 1.0) (y + 1.0) z
+      -- update offsets
+      pure mb
+         { mbVertexOffset  = vo + 18
+         , mbTexOffset     = to + 12
+         , mbNormOffset    = no + 18
+         , mbTriangleCount = mbTriangleCount mb + 2
+         }
+
+addFaceBack :: (MU.PrimMonad m, Integral a)
+  => (a, a, a)
+  -> Level.BlockType
+  -> MeshBuilder (MU.PrimState m)
+  -> m (MeshBuilder (MU.PrimState m))
+addFaceBack (xi, yi, zi) ty mb =
+   let (x, y, z) = (fromIntegral xi, fromIntegral yi, fromIntegral zi)
+       (u, v) = blockTypeCoords ty
+
+       verts =
+         [ (x,       y,       z)
+         , (x,       y + 1,   z)
+         , (x + 1,   y,       z)
+         , (x + 1,   y,       z)
+         , (x,       y + 1,   z)
+         , (x + 1,   y + 1,   z)
          ]
 
-       texCoords = mesh'texcoords mesh ++
-         [ texOffset + Vector2 0.0 0.0
-         , texOffset + Vector2 0.0 0.5
-         , texOffset + Vector2 0.5 0.0
-         , texOffset + Vector2 0.5 0.0
-         , texOffset + Vector2 0.0 0.5
-         , texOffset + Vector2 0.5 0.5
+       uvs =
+         [ (u,       v)
+         , (u,       v + 0.5)
+         , (u + 0.5, v)
+         , (u + 0.5, v)
+         , (u,       v + 0.5)
+         , (u + 0.5, v + 0.5)
          ]
 
-       normals = mesh'normals mesh ++ replicate 6 normal
+       vo = mbVertexOffset mb
+       to = mbTexOffset mb
+       no = mbNormOffset mb
 
-   in mesh
-      { mesh'vertices      = vertexData
-      , mesh'normals       = normals
-      , mesh'texcoords     = texCoords
-      , mesh'triangleCount = mesh'triangleCount mesh + 2
-      , mesh'vertexCount   = mesh'vertexCount mesh + 6
-      }
+   in do
+      -- Write vertices
+      forM_ (zip [0..] verts) $ \(i, (vx,vy,vz)) -> do
+         let j = vo + i * 3
+         MU.write (mbVertices mb) j     vx
+         MU.write (mbVertices mb) (j+1) vy
+         MU.write (mbVertices mb) (j+2) vz
 
-addFaceLeft :: Integral a 
-  => (a, a, a) 
-  -> BlockType
-  -> Mesh 
-  -> Mesh
-addFaceLeft (xi, yi, zi) ty mesh =
-   let normal = Vector3 (-1) 0 0
-       (x, y, z) = (fromIntegral xi, fromIntegral yi, fromIntegral zi)
+      -- Write texcoords
+      forM_ (zip [0..] uvs) $ \(i, (tu,tv)) -> do
+         let j = to + i * 2
+         MU.write (mbTexcoords mb) j     tu
+         MU.write (mbTexcoords mb) (j+1) tv
 
-       texOffset = blockTypeCoords ty
+      -- Write normals
+      forM_ [0..5] $ \i -> do
+         let j = no + i * 3
+         MU.write (mbNormals mb) j     0
+         MU.write (mbNormals mb) (j+1) 0
+         MU.write (mbNormals mb) (j+2) (-1)
 
-       vertexData = mesh'vertices mesh ++
-         [ Vector3 x y z
-         , Vector3 x y (z + 1.0)
-         , Vector3 x (y + 1.0) z
-         , Vector3 x (y + 1.0) z
-         , Vector3 x y (z + 1.0)
-         , Vector3 x (y + 1.0) (z + 1.0)
+      -- update offsets
+      pure mb
+         { mbVertexOffset  = vo + 18
+         , mbTexOffset     = to + 12
+         , mbNormOffset    = no + 18
+         , mbTriangleCount = mbTriangleCount mb + 2
+         }
+
+addFaceLeft :: (MU.PrimMonad m, Integral a)
+   => (a, a, a)
+   -> Level.BlockType
+   -> MeshBuilder (MU.PrimState m)
+   -> m (MeshBuilder (MU.PrimState m))
+addFaceLeft (xi, yi, zi) ty mb =
+   let (x, y, z) = (fromIntegral xi, fromIntegral yi, fromIntegral zi)
+       (u, v) = blockTypeCoords ty
+
+       verts =
+         [ (x, y,       z)
+         , (x, y,       z + 1)
+         , (x, y + 1,   z)
+         , (x, y + 1,   z)
+         , (x, y,       z + 1)
+         , (x, y + 1,   z + 1)
          ]
 
-       texCoords = mesh'texcoords mesh ++
-         [ texOffset + Vector2 0.5 0.0
-         , texOffset + Vector2 0.0 0.0
-         , texOffset + Vector2 0.5 0.5
-         , texOffset + Vector2 0.5 0.5
-         , texOffset + Vector2 0.0 0.0
-         , texOffset + Vector2 0.0 0.5
+       uvs =
+            [ (u + 0.5, v)
+            , (u,       v)
+            , (u + 0.5, v + 0.5)
+            , (u + 0.5, v + 0.5)
+            , (u,       v)
+            , (u,       v + 0.5)
+            ]
+
+       vo = mbVertexOffset mb
+       to = mbTexOffset mb
+       no = mbNormOffset mb
+
+   in do
+      -- Write vertices
+      forM_ (zip [0..] verts) $ \(i, (vx,vy,vz)) -> do
+         let j = vo + i * 3
+         MU.write (mbVertices mb) j     vx
+         MU.write (mbVertices mb) (j+1) vy
+         MU.write (mbVertices mb) (j+2) vz
+
+      -- Write texcoords
+      forM_ (zip [0..] uvs) $ \(i, (tu,tv)) -> do
+         let j = to + i * 2
+         MU.write (mbTexcoords mb) j     tu
+         MU.write (mbTexcoords mb) (j+1) tv
+
+      -- Write normals
+      forM_ [0..5] $ \i -> do
+         let j = no + i * 3
+         MU.write (mbNormals mb) j     (-1)
+         MU.write (mbNormals mb) (j+1) 0
+         MU.write (mbNormals mb) (j+2) 0
+
+      -- update offsets
+      pure mb
+         { mbVertexOffset  = vo + 18
+         , mbTexOffset     = to + 12
+         , mbNormOffset    = no + 18
+         , mbTriangleCount = mbTriangleCount mb + 2
+         }
+
+addFaceRight :: (MU.PrimMonad m, Integral a)
+   => (a, a, a)
+   -> Level.BlockType
+   -> MeshBuilder (MU.PrimState m)
+   -> m (MeshBuilder (MU.PrimState m))
+addFaceRight (xi, yi, zi) ty mb =
+   let (x, y, z) = (fromIntegral xi, fromIntegral yi, fromIntegral zi)
+       (u, v) = blockTypeCoords ty
+
+       verts =
+         [ (x + 1,   y,       z)
+         , (x + 1,   y + 1,   z)
+         , (x + 1,   y,       z + 1)
+         , (x + 1,   y,       z + 1)
+         , (x + 1,   y + 1,   z)
+         , (x + 1,   y + 1,   z + 1)
          ]
 
-       normals = mesh'normals mesh ++ replicate 6 normal
-
-   in mesh
-      { mesh'vertices      = vertexData
-      , mesh'normals       = normals
-      , mesh'texcoords     = texCoords
-      , mesh'triangleCount = mesh'triangleCount mesh + 2
-      , mesh'vertexCount   = mesh'vertexCount mesh + 6
-      }
-
-addFaceRight :: Integral a 
-  => (a, a, a) 
-  -> BlockType
-  -> Mesh 
-  -> Mesh
-addFaceRight (xi, yi, zi) ty mesh =
-   let normal = Vector3 1 0 0
-       (x, y, z) = (fromIntegral xi, fromIntegral yi, fromIntegral zi)
-
-       texOffset = blockTypeCoords ty
-
-       vertexData = mesh'vertices mesh ++
-         [ Vector3 (x + 1.0) y z
-         , Vector3 (x + 1.0) (y + 1.0) z
-         , Vector3 (x + 1.0) y (z + 1.0)
-         , Vector3 (x + 1.0) y (z + 1.0)
-         , Vector3 (x + 1.0) (y + 1.0) z
-         , Vector3 (x + 1.0) (y + 1.0) (z + 1.0)
+       uvs =
+         [ (u,       v)
+         , (u,       v + 0.5)
+         , (u + 0.5, v)
+         , (u + 0.5, v)
+         , (u,       v + 0.5)
+         , (u + 0.5, v + 0.5)
          ]
 
-       texCoords = mesh'texcoords mesh ++
-         [ texOffset + Vector2 0.0 0.0
-         , texOffset + Vector2 0.0 0.5
-         , texOffset + Vector2 0.5 0.0
-         , texOffset + Vector2 0.5 0.0
-         , texOffset + Vector2 0.0 0.5
-         , texOffset + Vector2 0.5 0.5
-         ]
+       vo = mbVertexOffset mb
+       to = mbTexOffset mb
+       no = mbNormOffset mb
 
-       normals = mesh'normals mesh ++ replicate 6 normal
+   in do
+      -- Write vertices
+      forM_ (zip [0..] verts) $ \(i, (vx,vy,vz)) -> do
+         let j = vo + i * 3
+         MU.write (mbVertices mb) j     vx
+         MU.write (mbVertices mb) (j+1) vy
+         MU.write (mbVertices mb) (j+2) vz
 
-   in mesh
-      { mesh'vertices      = vertexData
-      , mesh'normals       = normals
-      , mesh'texcoords     = texCoords
-      , mesh'triangleCount = mesh'triangleCount mesh + 2
-      , mesh'vertexCount   = mesh'vertexCount mesh + 6
-      }
+      -- Write texcoords
+      forM_ (zip [0..] uvs) $ \(i, (tu,tv)) -> do
+         let j = to + i * 2
+         MU.write (mbTexcoords mb) j     tu
+         MU.write (mbTexcoords mb) (j+1) tv
+
+      -- Write normals
+      forM_ [0..5] $ \i -> do
+         let j = no + i * 3
+         MU.write (mbNormals mb) j     1
+         MU.write (mbNormals mb) (j+1) 0
+         MU.write (mbNormals mb) (j+2) 0
+
+      -- update offsets
+      pure mb
+         { mbVertexOffset  = vo + 18
+         , mbTexOffset     = to + 12
+         , mbNormOffset    = no + 18
+         , mbTriangleCount = mbTriangleCount mb + 2
+         }
