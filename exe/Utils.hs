@@ -11,6 +11,7 @@ import Raylib.Util.Colors
 import Raylib.Core.Shapes (drawRectangleLinesEx)
 import Raylib.Core (isKeyPressed, isKeyPressedRepeat)
 import Raylib.Util.RLGL (rlSetLineWidth)
+import qualified Data.Vector.Unboxed as U
 
 rotToBouncing :: Float -> Float
 rotToBouncing rot = sin ((rot * pi) / 180) / 4
@@ -124,3 +125,15 @@ isKeyPressedMaybeRepeat k = (||) <$> isKeyPressed k <*> isKeyPressedRepeat k
 showOrEmpty :: (Num a, Eq a, Show a) => a -> String
 showOrEmpty 0 = ""
 showOrEmpty a = show a
+
+floatsToVec3List :: U.Vector Float -> [Vector3]
+floatsToVec3List v =
+   [ Vector3 (v U.! i) (v U.! (i+1)) (v U.! (i+2))
+   | i <- [0,3..U.length v - 3]
+   ]
+
+floatsToVec2List :: U.Vector Float -> [Vector2]
+floatsToVec2List v =
+   [ Vector2 (v U.! i) (v U.! (i+1))
+   | i <- [0,2..U.length v - 2]
+   ]

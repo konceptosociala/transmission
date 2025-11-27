@@ -1,13 +1,54 @@
-{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE RecordWildCards #-}
 module Level.Mesh where
 
-import Raylib.Types (pattern Vector3, pattern Vector2, Mesh(..))
+import Raylib.Types
 import Data.Function ((&))
 import Raylib.Core.Models (uploadMesh)
 import Level (Dims (Dims), MLevel (mlvlDims), BlockType (BTSolid))
 import Level.Manipulate
 import Control.Monad.ST (RealWorld)
 import Control.Monad (foldM)
+import qualified Data.Vector.Unboxed.Mutable as MU
+import qualified Data.Vector.Unboxed as U
+import Utils
+
+data MeshBuilder s = MeshBuilder
+   { mbVertices      :: MU.MVector s Float
+   , mbTexcoords     :: MU.MVector s Float
+   , mbNormals       :: MU.MVector s Float
+   , mbVertexOffset  :: Int
+   , mbTexOffset     :: Int
+   , mbNormOffset    :: Int
+   , mbTriangleCount :: Int
+   }
+
+freezeMesh :: MeshBuilder RealWorld -> IO Mesh
+freezeMesh MeshBuilder{..} = do
+    let vertCount = mbVertexOffset `div` 3
+
+    vertices  <- U.unsafeFreeze (MU.slice 0 mbVertexOffset mbVertices)
+    texcoords <- U.unsafeFreeze (MU.slice 0 mbTexOffset mbTexcoords)
+    normals   <- U.unsafeFreeze (MU.slice 0 mbNormOffset mbNormals)
+
+    return Mesh
+      { mesh'vertexCount   = vertCount
+      , mesh'triangleCount = mbTriangleCount
+      , mesh'vertices      = floatsToVec3List vertices
+      , mesh'texcoords     = floatsToVec2List texcoords
+      , mesh'texcoords2    = Nothing
+      , mesh'normals       = floatsToVec3List normals
+      , mesh'tangents      = Nothing
+      , mesh'colors        = Nothing
+      , mesh'indices       = Nothing
+      , mesh'animVertices  = Nothing
+      , mesh'animNormals   = Nothing
+      , mesh'boneIds       = Nothing
+      , mesh'boneWeights   = Nothing
+      , mesh'boneMatrices  = Nothing
+      , mesh'boneCount     = 0
+      , mesh'vaoId         = 0
+      , mesh'vboId         = Nothing
+      }
 
 meshDefault :: Mesh
 meshDefault = Mesh
@@ -81,6 +122,8 @@ addFaceTop (xi, yi, zi) ty mesh =
    let normal = Vector3 0 1 0
        (x, y, z) = (fromIntegral xi, fromIntegral yi, fromIntegral zi)
 
+       texOffset = blockTypeCoords ty
+
        vertexData = mesh'vertices mesh ++
          [ Vector3 x (y + 1.0) z
          , Vector3 x (y + 1.0) (z + 1.0)
@@ -91,12 +134,12 @@ addFaceTop (xi, yi, zi) ty mesh =
          ]
 
        texCoords = mesh'texcoords mesh ++
-         [ Vector2 0.0 0.0
-         , Vector2 0.0 1.0
-         , Vector2 1.0 0.0
-         , Vector2 1.0 0.0
-         , Vector2 0.0 1.0
-         , Vector2 1.0 1.0
+         [ texOffset + Vector2 0.0 0.0
+         , texOffset + Vector2 0.0 0.5
+         , texOffset + Vector2 0.5 0.0
+         , texOffset + Vector2 0.5 0.0
+         , texOffset + Vector2 0.0 0.5
+         , texOffset + Vector2 0.5 0.5
          ]
 
        normals = mesh'normals mesh ++ replicate 6 normal
@@ -118,6 +161,8 @@ addFaceBottom (xi, yi, zi) ty mesh =
    let normal = Vector3 0 (-1) 0
        (x, y, z) = (fromIntegral xi, fromIntegral yi, fromIntegral zi)
 
+       texOffset = blockTypeCoords ty
+
        vertexData = mesh'vertices mesh ++
          [ Vector3 x y z
          , Vector3 (x + 1.0) y z
@@ -128,12 +173,12 @@ addFaceBottom (xi, yi, zi) ty mesh =
          ]
 
        texCoords = mesh'texcoords mesh ++
-         [ Vector2 0.0 1.0
-         , Vector2 1.0 1.0
-         , Vector2 0.0 0.0
-         , Vector2 1.0 1.0
-         , Vector2 1.0 0.0
-         , Vector2 0.0 0.0
+         [ texOffset + Vector2 0.0 0.5
+         , texOffset + Vector2 0.5 0.5
+         , texOffset + Vector2 0.0 0.0
+         , texOffset + Vector2 0.5 0.5
+         , texOffset + Vector2 0.5 0.0
+         , texOffset + Vector2 0.0 0.0
          ]
 
        normals = mesh'normals mesh ++ replicate 6 normal
@@ -155,6 +200,8 @@ addFaceFront (xi, yi, zi) ty mesh =
    let normal = Vector3 0 0 1
        (x, y, z) = (fromIntegral xi, fromIntegral yi, fromIntegral zi)
 
+       texOffset = blockTypeCoords ty
+
        vertexData = mesh'vertices mesh ++
          [ Vector3 x y (z + 1.0)
          , Vector3 (x + 1.0) y (z + 1.0)
@@ -165,12 +212,12 @@ addFaceFront (xi, yi, zi) ty mesh =
          ]
 
        texCoords = mesh'texcoords mesh ++
-         [ Vector2 1.0 0.0
-         , Vector2 0.0 0.0
-         , Vector2 1.0 1.0
-         , Vector2 0.0 0.0
-         , Vector2 0.0 1.0
-         , Vector2 1.0 1.0
+         [ texOffset + Vector2 0.5 0.0
+         , texOffset + Vector2 0.0 0.0
+         , texOffset + Vector2 0.5 0.5
+         , texOffset + Vector2 0.0 0.0
+         , texOffset + Vector2 0.0 0.5
+         , texOffset + Vector2 0.5 0.5
          ]
 
        normals = mesh'normals mesh ++ replicate 6 normal
@@ -192,6 +239,8 @@ addFaceBack (xi, yi, zi) ty mesh =
    let normal = Vector3 0 0 (-1)
        (x, y, z) = (fromIntegral xi, fromIntegral yi, fromIntegral zi)
 
+       texOffset = blockTypeCoords ty
+
        vertexData = mesh'vertices mesh ++
          [ Vector3 x y z
          , Vector3 x (y + 1.0) z
@@ -202,12 +251,12 @@ addFaceBack (xi, yi, zi) ty mesh =
          ]
 
        texCoords = mesh'texcoords mesh ++
-         [ Vector2 0.0 0.0
-         , Vector2 0.0 1.0
-         , Vector2 1.0 0.0
-         , Vector2 1.0 0.0
-         , Vector2 0.0 1.0
-         , Vector2 1.0 1.0
+         [ texOffset + Vector2 0.0 0.0
+         , texOffset + Vector2 0.0 0.5
+         , texOffset + Vector2 0.5 0.0
+         , texOffset + Vector2 0.5 0.0
+         , texOffset + Vector2 0.0 0.5
+         , texOffset + Vector2 0.5 0.5
          ]
 
        normals = mesh'normals mesh ++ replicate 6 normal
@@ -229,6 +278,8 @@ addFaceLeft (xi, yi, zi) ty mesh =
    let normal = Vector3 (-1) 0 0
        (x, y, z) = (fromIntegral xi, fromIntegral yi, fromIntegral zi)
 
+       texOffset = blockTypeCoords ty
+
        vertexData = mesh'vertices mesh ++
          [ Vector3 x y z
          , Vector3 x y (z + 1.0)
@@ -239,12 +290,12 @@ addFaceLeft (xi, yi, zi) ty mesh =
          ]
 
        texCoords = mesh'texcoords mesh ++
-         [ Vector2 1.0 0.0
-         , Vector2 0.0 0.0
-         , Vector2 1.0 1.0
-         , Vector2 1.0 1.0
-         , Vector2 0.0 0.0
-         , Vector2 0.0 1.0
+         [ texOffset + Vector2 0.5 0.0
+         , texOffset + Vector2 0.0 0.0
+         , texOffset + Vector2 0.5 0.5
+         , texOffset + Vector2 0.5 0.5
+         , texOffset + Vector2 0.0 0.0
+         , texOffset + Vector2 0.0 0.5
          ]
 
        normals = mesh'normals mesh ++ replicate 6 normal
@@ -266,6 +317,8 @@ addFaceRight (xi, yi, zi) ty mesh =
    let normal = Vector3 1 0 0
        (x, y, z) = (fromIntegral xi, fromIntegral yi, fromIntegral zi)
 
+       texOffset = blockTypeCoords ty
+
        vertexData = mesh'vertices mesh ++
          [ Vector3 (x + 1.0) y z
          , Vector3 (x + 1.0) (y + 1.0) z
@@ -276,12 +329,12 @@ addFaceRight (xi, yi, zi) ty mesh =
          ]
 
        texCoords = mesh'texcoords mesh ++
-         [ Vector2 0.0 0.0
-         , Vector2 0.0 1.0
-         , Vector2 1.0 0.0
-         , Vector2 1.0 0.0
-         , Vector2 0.0 1.0
-         , Vector2 1.0 1.0
+         [ texOffset + Vector2 0.0 0.0
+         , texOffset + Vector2 0.0 0.5
+         , texOffset + Vector2 0.5 0.0
+         , texOffset + Vector2 0.5 0.0
+         , texOffset + Vector2 0.0 0.5
+         , texOffset + Vector2 0.5 0.5
          ]
 
        normals = mesh'normals mesh ++ replicate 6 normal

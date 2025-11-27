@@ -15,7 +15,7 @@ import Level.Manipulate (freezeLevel, serializeLevel, setBlock, newLevel)
 import Control.Monad (when)
 import qualified Data.ByteString as BS
 import Sounds
-import Raylib.Core.Audio (playSound)
+import Raylib.Core.Audio (playSound, isMusicStreamPlaying, stopMusicStream)
 import Raylib.Core.Camera (updateCamera)
 import Raylib.Core.Models (getRayCollisionMesh, getRayCollisionQuad)
 import Constants (windowWidth, windowHeight, levelMaxSize)
@@ -111,6 +111,11 @@ updateScene (ScnGame _) _ _ = pure $ ScnGame SceneGame
 updateScene (ScnMainMenu mainMenu) sound' _ = ScnMainMenu <$> updateMainMenu mainMenu sound'
 
 updateScene (ScnLevelEditor (SceneLevelEditor cam lvl (LevelDescr name) mesh _ mode matrix)) sound' _ = do
+   isMusic <- isMusicStreamPlaying $ mscMenuBg sound'
+
+   when isMusic
+      $ stopMusicStream $ mscMenuBg sound'
+   
    esc   <- isKeyPressed KeyEscape
    shift <- (||) <$> isKeyDown KeyLeftShift <*> isKeyDown KeyRightShift
    f     <- isKeyPressed KeyF
