@@ -33,7 +33,8 @@ executable transmission
         Level.Binary.BitMacro,
         Level.Manipulate,
         LevelEditor,
-        Sounds
+        Sounds,
+        Constants
     -- other-extensions:
     build-depends:
         text ^>=2.0.2,

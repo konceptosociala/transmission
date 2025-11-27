@@ -2,15 +2,15 @@ module Utils where
 
 import Paths_transmission (getDataFileName)
 import Raylib.Util (managed, WindowResources)
-import Raylib.Types (Model (model'materials), MaterialMapIndex (MaterialMapAlbedo), Rectangle (..), KeyboardKey)
-import Raylib.Core.Models (loadModel, setMaterialTexture, loadMaterialDefault)
+import Raylib.Types
+import Raylib.Core.Models (loadModel, setMaterialTexture, loadMaterialDefault, drawCubeWires)
 import Raylib.Core.Text (drawText, measureText)
 import Control.Exception (try, IOException)
-import Raylib.Core.Textures (loadImage, loadTextureFromImage)
+import Raylib.Core.Textures
 import Raylib.Util.Colors
-import Raylib.Types.Core (Color)
 import Raylib.Core.Shapes (drawRectangleLinesEx)
 import Raylib.Core (isKeyPressed, isKeyPressedRepeat)
+import Raylib.Util.RLGL (rlSetLineWidth)
 
 rotToBouncing :: Float -> Float
 rotToBouncing rot = sin ((rot * pi) / 180) / 4
@@ -25,12 +25,27 @@ tryReadFile file = do
 loadTexturedModel :: WindowResources -> FilePath -> FilePath -> IO Model
 loadTexturedModel w mdlP txtP = do
    mdl  <- managed w $ loadModel =<< getDataFileName mdlP
-   img  <- loadImage =<< getDataFileName txtP
-   txt  <- managed w $ loadTextureFromImage img
+   txt  <- loadTexture =<< getDataFileName txtP
    mat  <- managed w loadMaterialDefault
    mat2 <- setMaterialTexture mat MaterialMapAlbedo txt
 
    return mdl { model'materials = [mat2] }
+
+loadMainMaterial :: WindowResources -> IO Material
+loadMainMaterial w = do
+   txt <- loadTexture =<< getDataFileName "assets/solid.png"
+   mat <- managed w loadMaterialDefault
+   setMaterialTexture mat MaterialMapAlbedo txt
+
+loadCrosshair :: WindowResources -> IO Texture
+loadCrosshair w = managed w $ loadTexture "assets/crosshair101.png" >>= 
+   \t -> setTextureFilter t TextureFilterBilinear
+
+drawCrosshair :: (Int, Int) -> Texture -> IO ()
+drawCrosshair (w, h) crosshair = do
+   let x = (fromIntegral w - fromIntegral (texture'width crosshair)) / 2
+   let y = (fromIntegral h - fromIntegral (texture'height crosshair)) / 2
+   drawTextureEx crosshair (Vector2 x y) 0 0.75 white
 
 drawButton :: Eq a
    => String
@@ -48,6 +63,11 @@ drawButton label (width, height) offset assigned current = do
    measure <- measureText label fontSize
 
    drawText label ((width - measure) `div` 2) (height `div` 2 + offset) fontSize color
+
+drawThickCube :: Integral a => (a, a, a) -> Float -> Color -> IO ()
+drawThickCube (x, y, z) lineWidth color = do
+   rlSetLineWidth lineWidth
+   drawCubeWires (Vector3 (fromIntegral x + 0.5) (fromIntegral y + 0.5) (fromIntegral z + 0.5)) 1.1 1.1 1.1 color
 
 drawTextInput :: Eq a
    => String

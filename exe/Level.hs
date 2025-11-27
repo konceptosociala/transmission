@@ -32,7 +32,27 @@ data Block
    | BHeight Direction Word8  -- Yellow
    | BPunch                   -- Blue
    | BFinish                  -- Black
-   deriving (Eq, Show)
+   deriving Eq
+
+instance Show Block where
+   show BEmpty = "Empty"
+   show BSolid = "Solid"
+   show (BHeight dir h) = "Height: " ++ show dir ++ " "++ show h
+   show BPunch = "Punch"
+   show BFinish = "Finish"
+
+data BlockType
+   = BTSolid
+   | BTHeight
+   | BTPunch
+   | BTFinish
+   deriving Eq
+
+instance Show BlockType where
+   show BTSolid = "Solid"
+   show BTHeight = "Height"
+   show BTPunch = "Punch"
+   show BTFinish = "Finish"
 
 data Direction
    = DirUp

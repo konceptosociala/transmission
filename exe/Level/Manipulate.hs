@@ -15,6 +15,7 @@ import Data.Void (Void)
 import Data.Word (Word16)
 import Level.Binary
 import Data.Function ((&))
+import Data.Maybe (isJust)
 
 dimsContain :: Dims -> (Word16, Word16, Word16) -> Bool
 dimsContain (Dims w h d) (x, y, z) =
@@ -28,7 +29,7 @@ newLevel :: MU.PrimMonad m
    => Dims 
    -> m (MLevel (MU.PrimState m))
 newLevel mlvlDims = do
-   mlvlBlocks <- MU.replicate (dimsLen mlvlDims) 0
+   mlvlBlocks <- MU.replicate (dimsLen mlvlDims) (blockToFixed BEmpty)
    return MLevel {..}
 
 setBlock :: MU.PrimMonad m
@@ -48,7 +49,38 @@ getBlock :: MU.PrimMonad m
 getBlock (MLevel dims mv) coords
    | not (dimsContain dims coords) = pure Nothing
    | otherwise =
-      Just . fixedToBlock <$> MU.unsafeRead mv 0
+      Just . fixedToBlock <$> MU.unsafeRead mv (index3 dims coords)
+
+getBlockSolid :: MU.PrimMonad m
+   => MLevel (MU.PrimState m)
+   -> (Word16, Word16, Word16)
+   -> m (Maybe Block)
+getBlockSolid lvl coords = do
+   mb <- getBlock lvl coords
+   return $ case mb of
+      Just b | b /= BEmpty -> Just b
+      _ -> Nothing
+
+hasBlock :: MU.PrimMonad m
+   => MLevel (MU.PrimState m)
+   -> (Word16, Word16, Word16)
+   -> m Bool
+hasBlock lvl coords = do
+   mb <- getBlockSolid lvl coords
+   return $ isJust mb
+
+blockToType :: Block -> Maybe BlockType
+blockToType BEmpty         = Nothing
+blockToType BSolid         = Just BTSolid
+blockToType (BHeight _ _)  = Just BTHeight
+blockToType BPunch         = Just BTPunch
+blockToType BFinish        = Just BTFinish
+
+blockTypeCoords :: BlockType -> (Float, Float)
+blockTypeCoords BTSolid   = (0, 0)
+blockTypeCoords BTHeight  = (0.5, 0)
+blockTypeCoords BTPunch   = (0, 0.5)
+blockTypeCoords BTFinish  = (0.5, 0.5)
 
 freezeLevel :: MU.PrimMonad m
    => MLevel (MU.PrimState m)

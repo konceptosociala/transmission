@@ -1,12 +1,16 @@
 {-# LANGUAGE PatternSynonyms #-}
 module LevelEditor where
    
-import Raylib.Types (Camera3D(..), pattern Vector3, CameraProjection (CameraPerspective))
-import Level (MLevel, Dims, Level)
+import Raylib.Types (Camera3D(..), pattern Vector3, CameraProjection (CameraPerspective), Matrix)
+import Raylib.Util.Math (matrixTranslate)
 import Control.Monad.ST (RealWorld)
 import Level.Manipulate (deserializeMLevel, freezeLevel)
 import Utils (eitherToMaybe)
 import qualified Data.ByteString as BS
+import Level.Mesh (generateMesh)
+
+import Level
+import Raylib.Types.Core.Models
 
 newtype LevelDescr = LevelDescr FilePath
 
@@ -44,6 +48,10 @@ data SceneLevelEditor = SceneLevelEditor
    { leCam :: Camera3D
    , leCurrentLevel :: MLevel RealWorld
    , leLevelDescr :: LevelDescr
+   , leCurrentMesh :: Mesh
+   , leSelectedBlock :: Maybe (Int, Int, Int)
+   , leCurrentBlockType :: BlockType
+   , leMeshMatrix :: Matrix
    }
 
 leCamDefault :: Camera3D
@@ -55,8 +63,15 @@ leCamDefault = Camera3D
    , camera3D'projection = CameraPerspective
    }
 
-mkSceneLevelEditor :: MLevel RealWorld -> LevelDescr -> SceneLevelEditor
-mkSceneLevelEditor = SceneLevelEditor leCamDefault
+mkSceneLevelEditor :: MLevel RealWorld -> LevelDescr -> IO SceneLevelEditor
+mkSceneLevelEditor lvl descr = do
+   mesh <- generateMesh lvl
+   let Dims w _ d = mlvlDims lvl
+   -- Center the mesh horizontally, keep Y at 0, align to grid
+   let offsetX = negate (fromIntegral (w `div` 2))
+   let offsetZ = negate (fromIntegral (d `div` 2))
+   let meshMatrix = matrixTranslate offsetX 0.0 offsetZ
+   return $ SceneLevelEditor leCamDefault lvl descr mesh Nothing BTSolid meshMatrix
 
 loadMLevel :: LevelDescr -> IO (Maybe (MLevel RealWorld))
 loadMLevel (LevelDescr filename) = do

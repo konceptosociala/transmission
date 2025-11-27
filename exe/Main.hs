@@ -1,39 +1,36 @@
-{-# LANGUAGE PatternSynonyms #-}
 module Main where
 
 import Raylib.Util (withWindow, mode3D, drawing)
-import Raylib.Core (clearBackground, disableCursor, getRenderWidth, getRenderHeight, setExitKey, windowShouldClose)
-import Raylib.Types (pattern Vector3, Color (Color), KeyboardKey (KeyNull))
-import Raylib.Core.Models (drawModelEx, drawGrid, drawCube)
-import Raylib.Core.Text (drawFPS)
+import Raylib.Core
+import Raylib.Types
+import Raylib.Core.Models
+import Raylib.Core.Text (drawFPS, drawText)
 import Control.Monad (when, forM_)
 import GameState (Scene(..), State (showFps, currentScene, camera), initState, updateState, isExitState)
-import Utils (loadTexturedModel, drawButton, todo__, drawTextCentered, drawTextInput, showOrEmpty)
+import Utils
 import MainMenu (SceneMainMenu(SceneMainMenu), MainMenuItem (..), drawMsgBox, setFullScreen)
 import Raylib.Util.Colors
 import System.Directory (getDirectoryContents, createDirectoryIfMissing)
 import System.FilePath (takeExtension)
-import LevelEditor (LevelDescr (..), SceneLevelEditorSelect (SceneLevelEditorSelect), SceneNewLevel (SceneNewLevel), SNLItem (..))
-import Level (Dims(Dims))
+import LevelEditor (LevelDescr (..), SceneLevelEditorSelect (SceneLevelEditorSelect), SceneNewLevel (SceneNewLevel), SNLItem (..), SceneLevelEditor (SceneLevelEditor))
+import Level (Dims(Dims), MLevel (MLevel))
 import Sounds (loadSounds, Sounds (mscMenuBg), updateSounds)
 import Raylib.Core.Audio (initAudioDevice, closeAudioDevice, updateMusicStream, isMusicStreamPlaying)
 import Options (loadOrCreateOptions, SceneOptions (SceneOptions), OptionsItem (..), Options (..))
-
-title :: String
-title = "T.R.A.N.S.M.I.S.S.I.O.N"
-
-skyColor :: Color
-skyColor = Color 171 214 255 255
+import Constants
+import Raylib.Core.Shapes (drawRectangle)
 
 main :: IO ()
 main = do
-   withWindow 1024 768 title 60 $ \win -> do
+   withWindow windowWidth windowHeight title targetFps $ \win -> do
       initAudioDevice
       disableCursor
       setExitKey KeyNull
 
-      logo    <- loadTexturedModel win "assets/logo.obj" "assets/logo.png"
-      options <- loadOrCreateOptions
+      crosshair   <- loadCrosshair win
+      logo        <- loadTexturedModel win "assets/logo.obj" "assets/logo.png"
+      options     <- loadOrCreateOptions
+      mainMat     <- loadMainMaterial win
 
       sounds <- loadSounds win
       updateSounds sounds options
@@ -95,12 +92,26 @@ main = do
                            \(i, LevelDescr name) ->  
                               drawButton name screenSize (-180 + i * 60) i sel 
 
-                  ScnLevelEditor _ -> do
+                  ScnLevelEditor (SceneLevelEditor _ (MLevel (Dims w h d) _) (LevelDescr name) mesh sel mode matrix) -> do
                      clearBackground black
                      mode3D (camera s) $ do
-                        drawGrid 10 1.0
-                        drawCube (Vector3 0 0 0) 2 2 2 red
+                        drawGrid (levelMaxSize + 3) 1.0
+                        drawMesh mesh mainMat matrix
+                        case sel of
+                           Just (x, y, z) -> 
+                              drawThickCube (x, y, z) 5.0 green
 
+                           Nothing -> 
+                              return ()
+
+                     drawRectangle 0 0 300 200 (Color 0 0 0 160)
+                     drawText name 20 20 32 white
+                     drawText ("Size: " ++ show w ++ " " ++ show h ++ " " ++ show d) 20 70 20 lightGray
+                     drawText "Escape - Back to menu" 20 100 20 lightGray
+                     drawText "Shift+F - Save level" 20 130 20 lightGray
+                     drawText ("Current mode: " ++ show mode) 20 160 20 lightGray
+                     drawCrosshair screenSize crosshair
+   
                   ScnNewLevel (SceneNewLevel name (Dims w h d) item) -> do
                      clearBackground black
                      drawTextCentered "Create new level" screenSize (-240) 48 white
