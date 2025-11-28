@@ -1,34 +1,37 @@
 {-# LANGUAGE RecordWildCards #-}
 module GameState where
 
-import Raylib.Core
-import Raylib.Types
-import MainMenu
-import Options
-import Game
-import Utils (todo__, unreachable', safeInit, isKeyPressedMaybeRepeat)
-import LevelEditor
-import Data.Function
-import Level (Dims(..), mlvlDims, Block (..))
-import Data.Char (ord, chr)
-import Level.Manipulate (freezeLevel, serializeLevel, setBlock, newLevel)
-import Control.Monad (when)
+import Control.Monad (when, unless)
 import qualified Data.ByteString as BS
-import Sounds
-import Raylib.Core.Audio (playSound, isMusicStreamPlaying, stopMusicStream)
-import Raylib.Core.Camera (updateCamera)
-import Raylib.Core.Models (getRayCollisionMesh, getRayCollisionQuad, uploadMesh)
-import Constants (windowWidth, windowHeight, levelMaxSize, chunkSize)
-import Level.Mesh (generateChunkMesh)
 import qualified Data.HashMap.Strict as HM
-import Raylib.Util.Math (matrixTranslate)
 import Data.List (minimumBy)
 import Data.Ord (comparing)
+import Data.Char (ord, chr)
+import Data.Function
+
+import Raylib.Core
+import Raylib.Types
+import Raylib.Core.Audio (playSound, isMusicStreamPlaying, stopMusicStream, playMusicStream)
+import Raylib.Core.Camera (updateCamera)
+import Raylib.Core.Models (getRayCollisionMesh, getRayCollisionQuad, uploadMesh)
+import Raylib.Util.Math (matrixTranslate)
+
+import Sounds
+import Utils
+import Constants 
+
+import Level
+import Level.Mesh (generateChunkMesh)
+import Level.Manipulate (freezeLevel, serializeLevel, setBlock, newLevel)
+
+import Scene.LevelEditor
+import Scene.MainMenu
+import Scene.Options
+import Scene.Game
 
 data State = State
    { camera :: Camera3D
    , optionsValue :: Options
-   -- , loadedLevels :: [LevelDescr]
    , currentScene :: Scene
    , showFps :: Bool
    , sounds :: Sounds
@@ -55,7 +58,6 @@ initState :: Sounds -> Options -> State
 initState sounds options = State
    { showFps = False
    , optionsValue = options
-   -- , loadedLevels = loadedLevels
    , camera = Camera3D
       { camera3D'position = Vector3 3 1 0
       , camera3D'target = Vector3 0 1 0
@@ -91,11 +93,16 @@ updateState state = do
                   MmiLevelEditor  -> do
                      loadedLevels <- loadLevels
                      pure $ ScnLevelEditorSelect $ SceneLevelEditorSelect loadedLevels 0
-                     
+
                   MmiOptions      -> pure $ ScnOptions (SceneOptions OptMusicVolume (optionsValue state) False)
                   MmiExit         -> pure ScnExit
                else pure initial
          other -> pure other
+
+   let _camera = case currentScene_ of
+         ScnLevelEditor scn -> leCam scn
+         ScnGame _ -> todo__ "game camera"
+         _ -> mainMenuCam
 
    -- Check if we need to apply options
    case currentScene_ of
@@ -106,18 +113,77 @@ updateState state = do
          pure ()
 
    return state
-      { camera       = getCamera currentScene_
+      { camera       = _camera
       , currentScene = currentScene_
       , showFps      = showFps_
       , optionsValue = optionsValue_
       }
 
 updateScene :: Scene -> Sounds -> Options -> IO Scene
-updateScene (ScnGame _) _ _ = pure $ ScnGame SceneGame
+updateScene (ScnGame scene) sound' _               = updateSceneGame scene sound'
+updateScene (ScnSingleplayer scene) sound' _       = updateSceneSingleplayer scene sound'
+updateScene (ScnConnect scene) sound' _            = updateSceneConnect scene sound'
+updateScene (ScnMainMenu scene) sound' _           = updateSceneMainMenu scene sound'
+updateScene (ScnLevelEditor scene) sound' _        = updateSceneLevelEditor scene sound'
+updateScene (ScnLevelEditorSelect scene) sound' _  = updateSceneLevelEditorSelect scene sound'
+updateScene (ScnOptions scene) sound' opts         = updateSceneOptions scene sound' opts
+updateScene (ScnNewLevel scene) sound' _           = updateSceneNewLevel scene sound'
+updateScene ScnExit _ _                            = pure ScnExit
 
-updateScene (ScnMainMenu mainMenu) sound' _ = ScnMainMenu <$> updateMainMenu mainMenu sound'
+updateSceneGame :: SceneGame -> Sounds -> IO Scene
+updateSceneGame game _ = pure $ ScnGame game
 
-updateScene (ScnLevelEditor (SceneLevelEditor cam lvl (LevelDescr name) meshes _ mode)) sound' _ = do
+updateSceneSingleplayer :: SceneSingleplayer -> Sounds -> IO Scene
+updateSceneSingleplayer = todo__ "update SceneSingleplayer"
+
+updateSceneConnect :: SceneConnect -> Sounds -> IO Scene
+updateSceneConnect = todo__ "update SceneConnect"
+
+updateSceneMainMenu :: SceneMainMenu -> Sounds -> IO Scene
+updateSceneMainMenu (SceneMainMenu item _ rot msgbox) sound' = do
+   isMusic <- isMusicStreamPlaying $ mscMenuBg sound'
+
+   unless isMusic
+      $ playMusicStream $ mscMenuBg sound'
+
+   case msgbox of
+      Just msg -> do
+         ok <- checkMsgBox
+
+         return $ ScnMainMenu SceneMainMenu
+            { mmSelectedItem = item
+            , mmItemClicked = False
+            , mmLogoRotation = rot
+            , mmMsgBox = if ok then Nothing else Just msg
+            }
+
+      Nothing -> do
+         down  <- isKeyPressed KeyDown
+         up    <- isKeyPressed KeyUp
+         enter <- isKeyPressed KeyEnter
+
+         when (down || up)
+            $ playSound $ sndHover sound'
+
+         when enter
+            $ playSound $ sndClick sound'
+
+         let mmSelectedItem = item & if up
+               then prevMenuItem
+               else if down
+                  then nextMenuItem
+                  else id
+
+         dt <- getFrameTime
+
+         let mmLogoRotation = rot + (32.0 * dt)
+         let mmItemClicked = enter
+         let mmMsgBox = Nothing
+
+         return $ ScnMainMenu SceneMainMenu {..}
+
+updateSceneLevelEditor :: SceneLevelEditor -> Sounds -> IO Scene
+updateSceneLevelEditor (SceneLevelEditor cam lvl (LevelDescr name) meshes _ mode) sound' = do
    isMusic <- isMusicStreamPlaying $ mscMenuBg sound'
 
    when isMusic
@@ -241,7 +307,8 @@ updateScene (ScnLevelEditor (SceneLevelEditor cam lvl (LevelDescr name) meshes _
    else
       return $ ScnMainMenu mkMainMenu
 
-updateScene (ScnLevelEditorSelect (SceneLevelEditorSelect lvls i)) sound' _ = do
+updateSceneLevelEditorSelect :: SceneLevelEditorSelect -> Sounds -> IO Scene
+updateSceneLevelEditorSelect (SceneLevelEditorSelect lvls i) sound' = do
    esc   <- isKeyPressed KeyEscape
    down  <- isKeyPressed KeyDown
    up    <- isKeyPressed KeyUp
@@ -277,7 +344,8 @@ updateScene (ScnLevelEditorSelect (SceneLevelEditorSelect lvls i)) sound' _ = do
 
       in return $ ScnLevelEditorSelect $ SceneLevelEditorSelect lvls i_
 
-updateScene (ScnOptions (SceneOptions sel _ finished)) sound' opts = do
+updateSceneOptions :: SceneOptions -> Sounds -> Options -> IO Scene
+updateSceneOptions (SceneOptions sel _ finished) sound' opts = do
    esc <- isKeyPressed KeyEscape
 
    if finished || esc then
@@ -327,7 +395,8 @@ updateScene (ScnOptions (SceneOptions sel _ finished)) sound' opts = do
 
          _ -> return $ ScnOptions $ SceneOptions selectedItem_ options_ False
 
-updateScene (ScnNewLevel initial@(SceneNewLevel name dims@(Dims w h d) item)) sound' _ = do
+updateSceneNewLevel :: SceneNewLevel -> Sounds -> IO Scene
+updateSceneNewLevel initial@(SceneNewLevel name dims@(Dims w h d) item) sound' = do
    esc <- isKeyPressed KeyEscape
 
    if esc then
@@ -388,19 +457,3 @@ updateScene (ScnNewLevel initial@(SceneNewLevel name dims@(Dims w h d) item)) so
                _ -> name
 
          in return $ ScnNewLevel $ SceneNewLevel {..}
-
-updateScene ScnExit _ _ = pure ScnExit
-
-updateScene _ _ _ = todo__ "update other scenes"
-
-getCamera :: Scene -> Camera3D
-getCamera sc = case sc of
-   ScnMainMenu _          -> mainMenuCam
-   ScnOptions _           -> mainMenuCam
-   ScnConnect _           -> mainMenuCam
-   ScnExit                -> mainMenuCam
-   ScnSingleplayer _      -> mainMenuCam
-   ScnLevelEditorSelect _ -> mainMenuCam
-   ScnNewLevel _          -> mainMenuCam
-   ScnLevelEditor scn     -> leCam scn
-   ScnGame _ -> todo__ "game camera"

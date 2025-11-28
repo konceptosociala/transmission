@@ -1,32 +1,23 @@
 {-# LANGUAGE TypeFamilies #-}
-module Level.Binary.BitParser
-   ( runBitParserT
-   , bit, bitExact, bits, bitsExact, bitsAs
-   , word8, word8Exact
-   , word16, word16Exact
-   , word32, word32Exact
-   , word64, word64Exact
-   , skipLastBits
-   , BitStream (..), ErrorRepr (..), ErrorDescr (..)
-   , Parser
-   , bitToStr, bitsToStr, bsToBitStream, rev8, (<->)
-   ) where
+module Level.Binary.BitParser where
 
-import Data.Void (Void)
-import Text.Megaparsec (Stream (..), ParseErrorBundle, anySingle, VisualStream(..), TraversableStream(..), PosState(..), updateParserState, State (stateInput), ParsecT, runParserT, observing, MonadParsec (try, parseError))
+import Control.Monad (replicateM)
+
+import qualified Data.ByteString as BS
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Vector.Unboxed as U
 import Data.Bit (Bit(..), cloneFromByteString)
 import Data.Proxy (Proxy)
-import Control.Monad (replicateM)
+import Data.Void (Void)
 import Data.Binary (Word8, Word32, Word64)
 import Data.Bits (Bits((.|.), shiftL, shiftR), (.&.))
 import Data.Word (Word16)
+
+import Text.Megaparsec
 import Text.Printf (printf)
-import qualified Data.ByteString as BS
-import qualified Data.List.NonEmpty as NE
 
 data ErrorDescr = ErrorDescr
-   { label :: String
+   { labelE :: String
    , repr  :: ErrorRepr
    }
 
@@ -129,14 +120,14 @@ bitExact e = do
       then return f
       else fail ("exptected `"++bitToStr e++"`, found `"++bitToStr f++"`")
 
-bits :: Int -> Parser m (U.Vector Bit)
-bits n
+bitsMany :: Int -> Parser m (U.Vector Bit)
+bitsMany n
    | n <= 0    = return U.empty
    | otherwise = U.fromList <$> replicateM n anySingle
 
 bitsExact :: U.Vector Bit -> Parser m (U.Vector Bit)
 bitsExact es = do
-   fs <- bits (U.length es)
+   fs <- bitsMany (U.length es)
 
    if es == fs
       then return fs
@@ -158,57 +149,57 @@ word8 :: Parser m Word8
 word8 = bitsAs 8
 
 word8Exact :: Word8 -> ErrorDescr -> Parser m Word8
-word8Exact w8 (ErrorDescr label repr) = do
+word8Exact w8 (ErrorDescr labelE repr) = do
    v <- word8
 
    if v == w8
       then return v
       else case repr of
-         ReprBin -> fail ("expected `"++printf "%08b" w8++"`, found `"++printf "%08b" v++"` in `"++label++"`")
-         ReprHex -> fail ("expected `0x"++printf "%02X" w8++"`, found `0x"++printf "%02X" v++"` in `"++label++"`")
-         ReprDec -> fail ("expected `"++show w8++"`, found `"++show v++"` in `"++label++"`")
+         ReprBin -> fail ("expected `"++printf "%08b" w8++"`, found `"++printf "%08b" v++"` in `"++labelE++"`")
+         ReprHex -> fail ("expected `0x"++printf "%02X" w8++"`, found `0x"++printf "%02X" v++"` in `"++labelE++"`")
+         ReprDec -> fail ("expected `"++show w8++"`, found `"++show v++"` in `"++labelE++"`")
 
 word16 :: Parser m Word16
 word16 = bitsAs 16
 
 word16Exact :: Word16 -> ErrorDescr -> Parser m Word16
-word16Exact w16 (ErrorDescr label repr) = do
+word16Exact w16 (ErrorDescr labelE repr) = do
    v <- word16
 
    if v == w16
       then return v
       else case repr of
-         ReprBin -> fail ("expected `"++printf "%016b" w16++"`, found `"++printf "%016b" v++"` in `"++label++"`")
-         ReprHex -> fail ("expected `0x"++printf "%04X" w16++"`, found `0x"++printf "%04X" v++"` in `"++label++"`")
-         ReprDec -> fail ("expected `"++show w16++"`, found `"++show v++"` in `"++label++"`")
+         ReprBin -> fail ("expected `"++printf "%016b" w16++"`, found `"++printf "%016b" v++"` in `"++labelE++"`")
+         ReprHex -> fail ("expected `0x"++printf "%04X" w16++"`, found `0x"++printf "%04X" v++"` in `"++labelE++"`")
+         ReprDec -> fail ("expected `"++show w16++"`, found `"++show v++"` in `"++labelE++"`")
 
 word32 :: Parser m Word32
 word32 = bitsAs 32
 
 word32Exact :: Word32 -> ErrorDescr -> Parser m Word32
-word32Exact w32 (ErrorDescr label repr) = do
+word32Exact w32 (ErrorDescr labelE repr) = do
    v <- word32
 
    if v == w32
       then return v
       else case repr of
-         ReprBin -> fail ("expected `"++printf "%032b" w32++"`, found `"++printf "%032b" v++"` in `"++label++"`")
-         ReprHex -> fail ("expected `0x"++printf "%08X" w32++"`, found `0x"++printf "%08X" v++"` in `"++label++"`")
-         ReprDec -> fail ("expected `"++show w32++"`, found `"++show v++"` in `"++label++"`")
+         ReprBin -> fail ("expected `"++printf "%032b" w32++"`, found `"++printf "%032b" v++"` in `"++labelE++"`")
+         ReprHex -> fail ("expected `0x"++printf "%08X" w32++"`, found `0x"++printf "%08X" v++"` in `"++labelE++"`")
+         ReprDec -> fail ("expected `"++show w32++"`, found `"++show v++"` in `"++labelE++"`")
 
 word64 :: Parser m Word64
 word64 = bitsAs 64
 
 word64Exact :: Word64 -> ErrorDescr -> Parser m Word64
-word64Exact w64 (ErrorDescr label repr) = do
+word64Exact w64 (ErrorDescr labelE repr) = do
    v <- word64
 
    if v == w64
       then return v
       else case repr of
-         ReprBin -> fail ("expected `"++printf "%064b" w64++"`, found `"++printf "%064b" v++"` in `"++label++"`")
-         ReprHex -> fail ("expected `0x"++printf "%016X" w64++"`, found `0x"++printf "%016X" v++"` in `"++label++"`")
-         ReprDec -> fail ("expected `"++show w64++"`, found `"++show v++"` in `"++label++"`")
+         ReprBin -> fail ("expected `"++printf "%064b" w64++"`, found `"++printf "%064b" v++"` in `"++labelE++"`")
+         ReprHex -> fail ("expected `0x"++printf "%016X" w64++"`, found `0x"++printf "%016X" v++"` in `"++labelE++"`")
+         ReprDec -> fail ("expected `"++show w64++"`, found `"++show v++"` in `"++labelE++"`")
 
 skipLastBits :: Int -> Parser m ()
 skipLastBits n = updateParserState $ \st ->

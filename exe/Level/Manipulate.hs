@@ -1,21 +1,24 @@
 {-# LANGUAGE RecordWildCards #-}
 module Level.Manipulate where
 
+import Control.Monad.ST
+
 import qualified Data.Vector.Unboxed as U
 import qualified Data.Vector.Unboxed.Mutable as MU
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString as BL
-import Data.Bit
-import Control.Monad.ST
-import Level
-import Level.Binary.BitParser (rev8, BitStream, runBitParserT, bsToBitStream)
-import Text.Megaparsec
-import Data.Void (Void)
-import Data.Word (Word16)
-import Level.Binary
 import Data.Function ((&))
 import Data.Maybe (isJust)
+import Data.Bit
+import Data.Void (Void)
+import Data.Word (Word16)
+
+import Level
+import Level.Binary.BitParser
+import Level.Binary
+
+import Text.Megaparsec
 
 dimsContain :: Dims -> (Word16, Word16, Word16) -> Bool
 dimsContain (Dims w h d) (x, y, z) =

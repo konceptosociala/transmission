@@ -2,19 +2,21 @@
 {-# LANGUAGE QuasiQuotes #-}
 module Level.Binary where
 
-import Data.Bit
+import Control.Monad (forM_)
 import Control.Monad.ST
 import Control.Monad.Trans.Class (lift)
+
 import qualified Data.Vector.Unboxed as U
 import qualified Data.Vector.Unboxed.Mutable as MU
+import Data.Bit
 import Data.Binary (Word8, Word64)
-import Data.Bits (Bits(testBit, shiftL, shiftR))
-import Foreign (Bits((.|.), (.&.)))
+import Data.Bits (Bits(testBit, shiftL, shiftR, (.|.), (.&.)))
+
 import Level
-import Level.Binary.BitParser (Parser, word64Exact, word16, word8, ErrorRepr (ReprHex), ErrorDescr (ErrorDescr), skipLastBits, bitsExact, (<->))
-import Text.Megaparsec
-import Control.Monad (forM_)
+import Level.Binary.BitParser
 import Level.Binary.BitMacro (bits)
+
+import Text.Megaparsec
 
 magicNumber :: Word64
 magicNumber = 0xFA91D_AB0BA_09EC7_0 -- FARID, ABOBA, OPECT: big-endian

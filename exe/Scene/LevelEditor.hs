@@ -1,20 +1,22 @@
-{-# LANGUAGE PatternSynonyms #-}
-module LevelEditor where
+module Scene.LevelEditor where
    
-import Raylib.Types (Camera3D(..), pattern Vector3, CameraProjection (CameraPerspective))
 import Control.Monad.ST (RealWorld)
 import Control.Monad (foldM)
-import Level.Manipulate (deserializeMLevel, freezeLevel)
-import Utils (eitherToMaybe)
-import qualified Data.ByteString as BS
-import Level.Mesh (generateChunkMesh)
-import Level
-import Raylib.Types.Core.Models
-import Raylib.Core.Models (uploadMesh)
+
 import qualified Data.HashMap.Strict as HM
-import Constants (chunkSize)
+import qualified Data.ByteString as BS
 import System.Directory
 import System.FilePath
+
+import Raylib.Types
+import Raylib.Core.Models (uploadMesh)
+
+import Level.Manipulate (deserializeMLevel, freezeLevel)
+import Level.Mesh (generateChunkMesh)
+import Level
+
+import Utils (eitherToMaybe)
+import Constants (chunkSize)
 
 newtype LevelDescr = LevelDescr FilePath
 

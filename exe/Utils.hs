@@ -1,17 +1,34 @@
 module Utils where
 
+import Control.Monad (when)
+import Control.Exception (try, IOException)
+import qualified Data.Vector.Unboxed as U
 import Paths_transmission (getDataFileName)
+
 import Raylib.Util (managed, WindowResources)
 import Raylib.Types
-import Raylib.Core.Models (loadModel, setMaterialTexture, loadMaterialDefault, drawCubeWires)
+import Raylib.Core.Models
 import Raylib.Core.Text (drawText, measureText)
-import Control.Exception (try, IOException)
 import Raylib.Core.Textures
 import Raylib.Util.Colors
 import Raylib.Core.Shapes (drawRectangleLinesEx)
-import Raylib.Core (isKeyPressed, isKeyPressedRepeat)
+import Raylib.Core
 import Raylib.Util.RLGL (rlSetLineWidth)
-import qualified Data.Vector.Unboxed as U
+
+newtype MsgBox = MsgBox String
+
+checkMsgBox :: IO Bool
+checkMsgBox = isKeyPressed KeyEnter
+
+drawMsgBox :: (Int, Int) -> MsgBox -> IO ()
+drawMsgBox size@(w, h) (MsgBox label) = do
+   let x = fromIntegral (w - 600) / 2
+   let y = fromIntegral (h - 420) / 2
+
+   drawRectangleLinesEx (Rectangle x y 600 420) 2 red
+   drawText "Error" (floor x + 20) (floor y + 20) 40 red
+   drawText label (floor x + 20) (floor y + 80) 20 red
+   drawButton "Okay" size 120 () ()
 
 rotToBouncing :: Float -> Float
 rotToBouncing rot = sin ((rot * pi) / 180) / 4
@@ -137,3 +154,12 @@ floatsToVec2List v =
    [ Vector2 (v U.! i) (v U.! (i+1))
    | i <- [0,2..U.length v - 2]
    ]
+
+setFullScreen :: Bool -> IO ()
+setFullScreen should = do
+   isFullscreen <- isWindowFullscreen
+   when
+      ( (isFullscreen && not should)
+            || (not isFullscreen && should)
+      )
+      toggleFullscreen

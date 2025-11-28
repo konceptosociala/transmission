@@ -1,12 +1,11 @@
 {-# LANGUAGE TemplateHaskellQuotes #-}
 {-# LANGUAGE QuasiQuotes #-}
-
 module Level.Binary.BitMacro (bits) where
 
-import Language.Haskell.TH
-import Language.Haskell.TH.Quote
 import qualified Data.Vector.Unboxed as U
 import Data.Bit (Bit(..))
+import Language.Haskell.TH
+import Language.Haskell.TH.Quote
 
 bits :: QuasiQuoter
 bits = QuasiQuoter

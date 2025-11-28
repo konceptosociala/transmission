@@ -3,14 +3,16 @@
 {-# HLINT ignore "Redundant return" #-}
 module Level.Mesh where
 
-import Raylib.Types
-import Level
-import Level.Manipulate
 import Control.Monad (forM_, foldM)
 import qualified Data.Vector.Unboxed.Mutable as MU
 import qualified Data.Vector.Unboxed as U
-import Utils
 import Data.Binary (Word16)
+
+import Raylib.Types
+
+import Level
+import Level.Manipulate
+import Utils
 
 cube :: IO Mesh
 cube = do

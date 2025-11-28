@@ -21,18 +21,30 @@ executable transmission
     main-is:          Main.hs
     other-modules:    
         Paths_transmission,
-        MainMenu,
-        Game,
-        GameState,
-        Options,
-        Utils,
+
         Level,
         Level.Mesh,
         Level.Binary,
         Level.Binary.BitParser,
         Level.Binary.BitMacro,
         Level.Manipulate,
-        LevelEditor,
+
+        Scene.MainMenu,
+        Scene.Game,
+        Scene.LevelEditor,
+        Scene.Options,
+
+        Render.MainMenu,
+        Render.LevelEditor,
+        Render.LevelEditorSelect,
+        Render.Options,
+        Render.NewLevel,
+        Render.Game,
+        Render.Connect,
+        Render.Singleplayer,
+
+        GameState,
+        Utils,
         Sounds,
         Constants
     -- other-extensions:

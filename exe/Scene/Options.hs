@@ -1,11 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Options where
+module Scene.Options where
 
 import qualified Data.HashMap.Strict as HM
-import Utils (eitherToMaybe, readInt, readBool)
 import Data.Ini
 import Data.Text (pack, unpack)
+
 import Raylib.Core (fileExists)
+
+import Utils (eitherToMaybe, readInt, readBool)
 
 data SceneOptions = SceneOptions
    { optSelectedItem :: OptionsItem

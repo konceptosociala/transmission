@@ -1,11 +1,13 @@
 {-# LANGUAGE RecordWildCards #-}
 module Sounds where
 
+import Paths_transmission (getDataFileName)
+
 import Raylib.Types (Sound, Music)
 import Raylib.Core.Audio (loadSound, loadMusicStream, setSoundVolume, setMusicVolume)
-import Paths_transmission (getDataFileName)
 import Raylib.Util (WindowResources, managed)
-import Options (Options (Options))
+
+import Scene.Options (Options (Options))
 
 data Sounds = Sounds
    -- Sounds

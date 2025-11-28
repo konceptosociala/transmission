@@ -1,3 +1,3 @@
-module Game where
+module Scene.Game where
 
 data SceneGame = SceneGame
