@@ -40,7 +40,7 @@ main = do
       updateSounds sounds options
       setFullScreen (isFullscreen options)
 
-      whileWindowOpen (initState sounds options) $
+      whileWindowOpen (initState sounds options win) $
          \s -> do
             screenSize     <- (,) <$> getRenderWidth <*> getRenderHeight
             menuBgPlaying  <- isMusicStreamPlaying $ mscMenuBg sounds
@@ -54,7 +54,7 @@ main = do
                      renderMainMenu mainMenu screenSize logo (camera s)
 
                   ScnGame game -> do
-                     renderGame game
+                     renderGame game mainMat
 
                   ScnOptions optionsScn -> 
                      renderOptions optionsScn screenSize
@@ -69,7 +69,7 @@ main = do
                      renderNewLevel newLevel screenSize
 
                   ScnSingleplayer singleplayer ->
-                     renderSingleplayer singleplayer
+                     renderSingleplayer singleplayer screenSize
 
                   ScnConnect connect ->
                      renderConnect connect

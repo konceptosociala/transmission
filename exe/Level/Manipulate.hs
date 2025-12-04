@@ -85,6 +85,11 @@ blockTypeCoords BTHeight  = (0.5, 0)
 blockTypeCoords BTPunch   = (0, 0.5)
 blockTypeCoords BTFinish  = (0.5, 0.5)
 
+unfreezeLevel :: Level -> IO (MLevel MU.RealWorld)
+unfreezeLevel (Level dims blocks) = do
+   mv <- U.thaw blocks
+   return $ MLevel dims mv
+
 freezeLevel :: MU.PrimMonad m
    => MLevel (MU.PrimState m)
    -> m Level

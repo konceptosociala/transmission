@@ -13,6 +13,7 @@ import Raylib.Types
 import Level
 import Level.Manipulate
 import Utils
+import Constants
 
 cube :: IO Mesh
 cube = do
@@ -100,8 +101,13 @@ generateMesh lvl = do
 
    freezeMesh mbFinal
 
-generateChunkMesh :: MLevel MU.RealWorld -> Word16 -> (Int, Int, Int) -> IO Mesh
-generateChunkMesh lvl chunkSize (cx, cy, cz) = do
+generateChunkMesh' :: Level -> (Int, Int, Int) -> IO Mesh
+generateChunkMesh' lvl coords = do
+   mlevel <- unfreezeLevel lvl
+   generateChunkMesh mlevel coords
+
+generateChunkMesh :: MLevel MU.RealWorld -> (Int, Int, Int) -> IO Mesh
+generateChunkMesh lvl (cx, cy, cz) = do
    let Dims w h d = mlvlDims lvl
    
    let chunkX0 = fromIntegral cx * fromIntegral chunkSize
@@ -549,3 +555,18 @@ addFaceRight (xi, yi, zi) ty mb =
          , mbNormOffset    = no + 18
          , mbTriangleCount = mbTriangleCount mb + 2
          }
+
+worldToChunkCoord :: (Int, Int, Int) -> (Int, Int, Int)
+worldToChunkCoord (x, y, z) = 
+   ( x `div` fromIntegral chunkSize 
+   , y `div` fromIntegral chunkSize
+   , z `div` fromIntegral chunkSize
+   )
+
+getAllChunkCoords :: Dims -> [(Int, Int, Int)]
+getAllChunkCoords (Dims w h d) = 
+   [ (cx, cy, cz)
+   | cx <- [0 .. (fromIntegral w - 1) `div` fromIntegral chunkSize]
+   , cy <- [0 .. (fromIntegral h - 1) `div` fromIntegral chunkSize]
+   , cz <- [0 .. (fromIntegral d - 1) `div` fromIntegral chunkSize]
+   ]

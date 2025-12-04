@@ -19,18 +19,19 @@ data Options = Options
    { musicVolume :: Int
    , soundVolume :: Int
    , isFullscreen :: Bool
+   , playerNickname :: String
    } deriving (Eq, Show)
 
 optsDefault :: Options
-optsDefault = Options 100 100 True
-
+optsDefault = Options 100 100 True "unnamed"
 optsToIni :: Options -> Ini
-optsToIni (Options mVol sVol isFS) = Ini
+optsToIni (Options mVol sVol isFS nick) = Ini
    { iniSections = HM.fromList
       [  ("SETTINGS",
             [ ("mvol", pack $ show mVol)
             , ("svol", pack $ show sVol)
             , ("isfs", pack $ show isFS)
+            , ("nick", pack nick)
             ]
          )
       ]
@@ -44,13 +45,15 @@ optsFromIni ini = do
    mvolT <- lookupField "SETTINGS" "mvol"
    svolT <- lookupField "SETTINGS" "svol"
    isfsT <- lookupField "SETTINGS" "isfs"
+   nickT <- lookupField "SETTINGS" "nick"
 
    mvol <- readInt (unpack mvolT)
    svol <- readInt (unpack svolT)
    isfs <- readBool (unpack isfsT)
+   let nick = unpack nickT
 
    if [0..100] `contains` mvol && [0..100] `contains` svol then
-      Just $ Options mvol svol isfs
+      Just (Options mvol svol isfs nick)
    else
       Nothing
 
@@ -61,6 +64,7 @@ data OptionsItem
    = OptMusicVolume
    | OptSoundVolume
    | OptFullscreen
+   | OptPlayerNickname
    | OptSave
    | OptCancel
    deriving Eq
@@ -69,13 +73,15 @@ prevOptionsItem :: OptionsItem -> OptionsItem
 prevOptionsItem OptMusicVolume  = OptCancel
 prevOptionsItem OptSoundVolume  = OptMusicVolume
 prevOptionsItem OptFullscreen   = OptSoundVolume
-prevOptionsItem OptSave         = OptFullscreen
+prevOptionsItem OptPlayerNickname = OptFullscreen
+prevOptionsItem OptSave         = OptPlayerNickname
 prevOptionsItem OptCancel       = OptSave
 
 nextOptionsItem :: OptionsItem -> OptionsItem
 nextOptionsItem OptMusicVolume  = OptSoundVolume
 nextOptionsItem OptSoundVolume  = OptFullscreen
-nextOptionsItem OptFullscreen   = OptSave
+nextOptionsItem OptFullscreen   = OptPlayerNickname
+nextOptionsItem OptPlayerNickname = OptSave
 nextOptionsItem OptSave         = OptCancel
 nextOptionsItem OptCancel       = OptMusicVolume
 

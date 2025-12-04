@@ -12,11 +12,10 @@ import Raylib.Types
 import Raylib.Core.Models (uploadMesh)
 
 import Level.Manipulate (deserializeMLevel, freezeLevel)
-import Level.Mesh (generateChunkMesh)
+import Level.Mesh (generateChunkMesh, getAllChunkCoords)
 import Level
 
 import Utils (eitherToMaybe)
-import Constants (chunkSize)
 
 newtype LevelDescr = LevelDescr FilePath
 
@@ -59,21 +58,6 @@ data SceneLevelEditor = SceneLevelEditor
    , leCurrentBlockType :: BlockType
    }
 
-worldToChunkCoord :: (Int, Int, Int) -> (Int, Int, Int)
-worldToChunkCoord (x, y, z) = 
-   ( x `div` fromIntegral chunkSize 
-   , y `div` fromIntegral chunkSize
-   , z `div` fromIntegral chunkSize
-   )
-
-getAllChunkCoords :: Dims -> [(Int, Int, Int)]
-getAllChunkCoords (Dims w h d) = 
-   [ (cx, cy, cz)
-   | cx <- [0 .. (fromIntegral w - 1) `div` fromIntegral chunkSize]
-   , cy <- [0 .. (fromIntegral h - 1) `div` fromIntegral chunkSize]
-   , cz <- [0 .. (fromIntegral d - 1) `div` fromIntegral chunkSize]
-   ]
-
 leCamDefault :: Camera3D
 leCamDefault = Camera3D
    { camera3D'position = Vector3 5 5 5
@@ -93,7 +77,7 @@ mkSceneLevelEditor lvl descr = do
 
    where
       genMesh hm coord = do
-         m_ <- generateChunkMesh lvl chunkSize coord
+         m_ <- generateChunkMesh lvl coord
          mesh <- uploadMesh m_ False
          return $ HM.insert coord mesh hm
 

@@ -1,7 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 module GameState where
 
-import Control.Monad (when, unless)
+import Control.Monad (when, unless, forM_)
 import qualified Data.ByteString as BS
 import qualified Data.HashMap.Strict as HM
 import Data.List (minimumBy)
@@ -11,9 +11,10 @@ import Data.Function
 
 import Raylib.Core
 import Raylib.Types
+import Raylib.Util (WindowResources)
 import Raylib.Core.Audio (playSound, isMusicStreamPlaying, stopMusicStream, playMusicStream)
 import Raylib.Core.Camera (updateCamera)
-import Raylib.Core.Models (getRayCollisionMesh, getRayCollisionQuad, uploadMesh)
+import Raylib.Core.Models (getRayCollisionMesh, getRayCollisionQuad, uploadMesh, unloadMesh)
 import Raylib.Util.Math (matrixTranslate)
 
 import Sounds
@@ -21,7 +22,7 @@ import Utils
 import Constants 
 
 import Level
-import Level.Mesh (generateChunkMesh)
+import Level.Mesh (generateChunkMesh, worldToChunkCoord)
 import Level.Manipulate (freezeLevel, serializeLevel, setBlock, newLevel)
 
 import Scene.LevelEditor
@@ -35,6 +36,7 @@ data State = State
    , currentScene :: Scene
    , showFps :: Bool
    , sounds :: Sounds
+   , win :: WindowResources
    }
 
 data Scene
@@ -54,8 +56,8 @@ isExitState state =
       ScnExit -> True
       _       -> False
 
-initState :: Sounds -> Options -> State
-initState sounds options = State
+initState :: Sounds -> Options -> WindowResources -> State
+initState sounds options win = State
    { showFps = False
    , optionsValue = options
    , camera = Camera3D
@@ -67,6 +69,7 @@ initState sounds options = State
       }
    , currentScene = ScnMainMenu mkMainMenu
    , sounds = sounds
+   , win = win
    }
 
 updateState :: State -> IO State
@@ -76,7 +79,11 @@ updateState state = do
    let showFps_ = if f3 then not previous else previous
          where previous = showFps state
 
-   updatedScene <- updateScene (currentScene state) (sounds state) (optionsValue state)
+   updatedScene <- updateScene 
+      (currentScene state) 
+      (sounds state) 
+      (optionsValue state) 
+      (win state)
 
    -- Get updated options if changed
    let optionsValue_ = case updatedScene of
@@ -88,20 +95,28 @@ updateState state = do
          initial@(ScnMainMenu (SceneMainMenu item selected _ _)) ->
             if selected
                then case item of
-                  MmiSingleplayer -> pure $ ScnSingleplayer SceneSingleplayer
+                  MmiSingleplayer -> do
+                     levels <- loadLevels
+                     pure $ ScnSingleplayer $ SceneSingleplayer levels 0
+
                   MmiConnect      -> pure $ ScnConnect SceneConnect
                   MmiLevelEditor  -> do
                      loadedLevels <- loadLevels
                      pure $ ScnLevelEditorSelect $ SceneLevelEditorSelect loadedLevels 0
 
-                  MmiOptions      -> pure $ ScnOptions (SceneOptions OptMusicVolume (optionsValue state) False)
+                  MmiOptions      -> pure $ ScnOptions $ SceneOptions 
+                     { optSelectedItem = OptMusicVolume
+                     , optInnerOpts = optionsValue state
+                     , optFinished = False
+                     }
+
                   MmiExit         -> pure ScnExit
                else pure initial
          other -> pure other
 
    let _camera = case currentScene_ of
          ScnLevelEditor scn -> leCam scn
-         ScnGame _ -> todo__ "game camera"
+         ScnGame scn -> gmPlayerCam scn
          _ -> mainMenuCam
 
    -- Check if we need to apply options
@@ -119,22 +134,62 @@ updateState state = do
       , optionsValue = optionsValue_
       }
 
-updateScene :: Scene -> Sounds -> Options -> IO Scene
-updateScene (ScnGame scene) sound' _               = updateSceneGame scene sound'
-updateScene (ScnSingleplayer scene) sound' _       = updateSceneSingleplayer scene sound'
-updateScene (ScnConnect scene) sound' _            = updateSceneConnect scene sound'
-updateScene (ScnMainMenu scene) sound' _           = updateSceneMainMenu scene sound'
-updateScene (ScnLevelEditor scene) sound' _        = updateSceneLevelEditor scene sound'
-updateScene (ScnLevelEditorSelect scene) sound' _  = updateSceneLevelEditorSelect scene sound'
-updateScene (ScnOptions scene) sound' opts         = updateSceneOptions scene sound' opts
-updateScene (ScnNewLevel scene) sound' _           = updateSceneNewLevel scene sound'
-updateScene ScnExit _ _                            = pure ScnExit
+updateScene :: Scene -> Sounds -> Options -> WindowResources -> IO Scene
+updateScene (ScnGame scene) sound' _ _               = updateSceneGame scene sound'
+updateScene (ScnSingleplayer scene) sound' _ _       = updateSceneSingleplayer scene sound'
+updateScene (ScnConnect scene) sound' _ _            = updateSceneConnect scene sound'
+updateScene (ScnMainMenu scene) sound' _ _           = updateSceneMainMenu scene sound'
+updateScene (ScnLevelEditor scene) sound' _ win      = updateSceneLevelEditor scene sound' win
+updateScene (ScnLevelEditorSelect scene) sound' _ _  = updateSceneLevelEditorSelect scene sound'
+updateScene (ScnOptions scene) sound' opts _         = updateSceneOptions scene sound' opts
+updateScene (ScnNewLevel scene) sound' _ _           = updateSceneNewLevel scene sound'
+updateScene ScnExit _ _ _                            = pure ScnExit
 
 updateSceneGame :: SceneGame -> Sounds -> IO Scene
-updateSceneGame game _ = pure $ ScnGame game
+updateSceneGame game sound' = do 
+   isMusic <- isMusicStreamPlaying $ mscMenuBg sound'
+
+   when isMusic
+      $ stopMusicStream $ mscMenuBg sound'
+
+   _camera <- updateCamera (gmPlayerCam game) CameraModeFirstPerson
+
+   pure $ ScnGame game
+      { gmPlayerCam = _camera
+      }
 
 updateSceneSingleplayer :: SceneSingleplayer -> Sounds -> IO Scene
-updateSceneSingleplayer = todo__ "update SceneSingleplayer"
+updateSceneSingleplayer (SceneSingleplayer lvls sel) sound' = do
+   esc   <- isKeyPressed KeyEscape
+   down  <- isKeyPressed KeyDown
+   up    <- isKeyPressed KeyUp
+   enter <- isKeyPressed KeyEnter
+
+   when (down || up)
+      $ playSound $ sndHover sound'
+
+   when enter
+      $ playSound $ sndClick sound'
+
+   if esc then
+      return $ ScnMainMenu mkMainMenu
+   else if enter then do
+      let descr@(LevelDescr name) = lvls !! sel
+      lvlLoaded <- loadLevel descr
+
+      case lvlLoaded of
+         Just lvl -> ScnGame <$> mkSceneGame lvl
+
+         Nothing  -> return $ ScnMainMenu $
+            mkMainMenu
+               & withMsgBox (MsgBox $ "Error loading level `"++name++"`")
+   else
+      let sel_
+            | up        = max (sel - 1) 0
+            | down      = min (sel + 1) (length lvls - 1)
+            | otherwise = sel
+
+      in return $ ScnSingleplayer $ SceneSingleplayer lvls sel_
 
 updateSceneConnect :: SceneConnect -> Sounds -> IO Scene
 updateSceneConnect = todo__ "update SceneConnect"
@@ -182,8 +237,8 @@ updateSceneMainMenu (SceneMainMenu item _ rot msgbox) sound' = do
 
          return $ ScnMainMenu SceneMainMenu {..}
 
-updateSceneLevelEditor :: SceneLevelEditor -> Sounds -> IO Scene
-updateSceneLevelEditor (SceneLevelEditor cam lvl (LevelDescr name) meshes _ mode) sound' = do
+updateSceneLevelEditor :: SceneLevelEditor -> Sounds -> WindowResources -> IO Scene
+updateSceneLevelEditor (SceneLevelEditor cam lvl (LevelDescr name) meshes _ mode) sound' win = do
    isMusic <- isMusicStreamPlaying $ mscMenuBg sound'
 
    when isMusic
@@ -285,7 +340,7 @@ updateSceneLevelEditor (SceneLevelEditor cam lvl (LevelDescr name) meshes _ mode
                
                -- Regenerate affected chunk only (use local coordinates)
                let chunkCoord = worldToChunkCoord (fromIntegral localXo, fromIntegral yo, fromIntegral localZo)
-               m <- generateChunkMesh lvl chunkSize chunkCoord
+               m <- generateChunkMesh lvl chunkCoord
                mesh <- uploadMesh m False
                return $ HM.insert chunkCoord mesh meshes
 
@@ -294,7 +349,7 @@ updateSceneLevelEditor (SceneLevelEditor cam lvl (LevelDescr name) meshes _ mode
                
                -- Regenerate affected chunk only (use local coordinates)
                let chunkCoord = worldToChunkCoord (fromIntegral localXi, fromIntegral yi, fromIntegral localZi)
-               m <- generateChunkMesh lvl chunkSize chunkCoord
+               m <- generateChunkMesh lvl chunkCoord
                mesh <- uploadMesh m False
                return $ HM.insert chunkCoord mesh meshes
                
@@ -304,7 +359,9 @@ updateSceneLevelEditor (SceneLevelEditor cam lvl (LevelDescr name) meshes _ mode
          _ -> return meshes
 
       return $ ScnLevelEditor (SceneLevelEditor leCam_ lvl (LevelDescr name) newMeshes selectedInside mode)
-   else
+   else do
+      forM_ (HM.elems meshes) $ flip unloadMesh win
+
       return $ ScnMainMenu mkMainMenu
 
 updateSceneLevelEditorSelect :: SceneLevelEditorSelect -> Sounds -> IO Scene

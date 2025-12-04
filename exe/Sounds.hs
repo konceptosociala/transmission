@@ -29,7 +29,7 @@ loadSounds w = do
    return Sounds {..}
 
 updateSounds :: Sounds -> Options -> IO ()
-updateSounds sounds (Options musicVolume soundVolume _) = do
+updateSounds sounds (Options musicVolume soundVolume _ _) = do
    setSoundVolume (sndClick sounds) (fromIntegral soundVolume / 100)
    setSoundVolume (sndHover sounds) (fromIntegral soundVolume / 100)
    setSoundVolume (sndError sounds) (fromIntegral soundVolume / 100)

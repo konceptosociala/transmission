@@ -2,6 +2,7 @@ module Scene.MainMenu where
 
 import Raylib.Types
 import Utils (MsgBox)
+import Scene.LevelEditor (LevelDescr)
 
 mkMainMenu :: SceneMainMenu
 mkMainMenu = SceneMainMenu
@@ -33,6 +34,9 @@ data SceneMainMenu = SceneMainMenu
    }
 
 data SceneSingleplayer = SceneSingleplayer
+   { spLevels :: [LevelDescr]
+   , spSelected :: Int
+   }
 
 data SceneConnect = SceneConnect
 
