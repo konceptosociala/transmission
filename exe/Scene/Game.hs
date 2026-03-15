@@ -35,7 +35,7 @@ mkSceneGame lvl = do
       , gmIsPaused = False
       , gmIsOnline = False
       , gmPlayer = Player
-         { plPos = Vector3 0 5 0
+         { plPos = Vector3 0 1 0
          , plVel = Vector3 0 0 0
          , plOnGround = False
          }

@@ -19,19 +19,18 @@ data Options = Options
    { musicVolume :: Int
    , soundVolume :: Int
    , isFullscreen :: Bool
-   , playerNickname :: String
    } deriving (Eq, Show)
 
 optsDefault :: Options
-optsDefault = Options 100 100 True "unnamed"
+optsDefault = Options 100 100 True
 optsToIni :: Options -> Ini
-optsToIni (Options mVol sVol isFS nick) = Ini
+optsToIni (Options mVol sVol isFS) = Ini
    { iniSections = HM.fromList
       [  ("SETTINGS",
             [ ("mvol", pack $ show mVol)
             , ("svol", pack $ show sVol)
             , ("isfs", pack $ show isFS)
-            , ("nick", pack nick)
+            , ("nick", pack "Player")
             ]
          )
       ]
@@ -45,15 +44,13 @@ optsFromIni ini = do
    mvolT <- lookupField "SETTINGS" "mvol"
    svolT <- lookupField "SETTINGS" "svol"
    isfsT <- lookupField "SETTINGS" "isfs"
-   nickT <- lookupField "SETTINGS" "nick"
 
    mvol <- readInt (unpack mvolT)
    svol <- readInt (unpack svolT)
    isfs <- readBool (unpack isfsT)
-   let nick = unpack nickT
 
    if [0..100] `contains` mvol && [0..100] `contains` svol then
-      Just (Options mvol svol isfs nick)
+      Just (Options mvol svol isfs)
    else
       Nothing
 
@@ -64,7 +61,6 @@ data OptionsItem
    = OptMusicVolume
    | OptSoundVolume
    | OptFullscreen
-   | OptPlayerNickname
    | OptSave
    | OptCancel
    deriving Eq
@@ -73,15 +69,13 @@ prevOptionsItem :: OptionsItem -> OptionsItem
 prevOptionsItem OptMusicVolume  = OptCancel
 prevOptionsItem OptSoundVolume  = OptMusicVolume
 prevOptionsItem OptFullscreen   = OptSoundVolume
-prevOptionsItem OptPlayerNickname = OptFullscreen
-prevOptionsItem OptSave         = OptPlayerNickname
+prevOptionsItem OptSave         = OptFullscreen
 prevOptionsItem OptCancel       = OptSave
 
 nextOptionsItem :: OptionsItem -> OptionsItem
 nextOptionsItem OptMusicVolume  = OptSoundVolume
 nextOptionsItem OptSoundVolume  = OptFullscreen
-nextOptionsItem OptFullscreen   = OptPlayerNickname
-nextOptionsItem OptPlayerNickname = OptSave
+nextOptionsItem OptFullscreen   = OptSave
 nextOptionsItem OptSave         = OptCancel
 nextOptionsItem OptCancel       = OptMusicVolume
 

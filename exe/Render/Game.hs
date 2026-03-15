@@ -1,6 +1,6 @@
 module Render.Game where
 
-import Control.Monad (forM_)
+import Control.Monad (forM_, when)
 import qualified Data.HashMap.Strict as HM
 
 import Raylib.Core
@@ -13,9 +13,11 @@ import Scene.Game
 
 import Constants
 import Level
+import Raylib.Util.Colors (white)
+import Utils (drawTextCentered)
 
-renderGame :: SceneGame -> Material -> IO ()
-renderGame game mainMat = do
+renderGame :: SceneGame -> Material -> (Int, Int) -> IO ()
+renderGame game mainMat screenSize = do
    clearBackground skyColor
    let (Dims w _ d) = lvlDims (gmLevel game)
 
@@ -29,3 +31,6 @@ renderGame game mainMat = do
          let chunkOffsetZ = fromIntegral cz * fromIntegral chunkSize
          let matrix = matrixTranslate (offsetX + chunkOffsetX) chunkOffsetY (offsetZ + chunkOffsetZ)
          drawMesh mesh mainMat matrix
+
+   when (gmIsPaused game) $
+      drawTextCentered "PAUSED" screenSize 0 48 white

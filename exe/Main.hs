@@ -54,7 +54,7 @@ main = do
                      renderMainMenu mainMenu screenSize logo (camera s)
 
                   ScnGame game -> do
-                     renderGame game mainMat
+                     renderGame game mainMat screenSize
 
                   ScnOptions optionsScn -> 
                      renderOptions optionsScn screenSize

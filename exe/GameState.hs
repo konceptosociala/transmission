@@ -19,7 +19,7 @@ import Raylib.Util.Math (matrixTranslate)
 
 import Sounds
 import Utils
-import Constants 
+import Constants
 
 import Level
 import Level.Mesh (generateChunkMesh, worldToChunkCoord)
@@ -79,40 +79,16 @@ updateState state = do
    let showFps_ = if f3 then not previous else previous
          where previous = showFps state
 
-   updatedScene <- updateScene 
-      (currentScene state) 
-      (sounds state) 
-      (optionsValue state) 
+   currentScene_ <- updateScene
+      (currentScene state)
+      (sounds state)
+      (optionsValue state)
       (win state)
 
    -- Get updated options if changed
-   let optionsValue_ = case updatedScene of
+   let optionsValue_ = case currentScene_ of
          (ScnOptions (SceneOptions _ opts _)) -> opts
          _ -> optionsValue state
-
-   -- Open scene from main menu
-   currentScene_ <- case updatedScene of
-         initial@(ScnMainMenu (SceneMainMenu item selected _ _)) ->
-            if selected
-               then case item of
-                  MmiSingleplayer -> do
-                     levels <- loadLevels
-                     pure $ ScnSingleplayer $ SceneSingleplayer levels 0
-
-                  MmiConnect      -> pure $ ScnConnect SceneConnect
-                  MmiLevelEditor  -> do
-                     loadedLevels <- loadLevels
-                     pure $ ScnLevelEditorSelect $ SceneLevelEditorSelect loadedLevels 0
-
-                  MmiOptions      -> pure $ ScnOptions $ SceneOptions 
-                     { optSelectedItem = OptMusicVolume
-                     , optInnerOpts = optionsValue state
-                     , optFinished = False
-                     }
-
-                  MmiExit         -> pure ScnExit
-               else pure initial
-         other -> pure other
 
    let _camera = case currentScene_ of
          ScnLevelEditor scn -> leCam scn
@@ -138,7 +114,7 @@ updateScene :: Scene -> Sounds -> Options -> WindowResources -> IO Scene
 updateScene (ScnGame scene) sound' _ _               = updateSceneGame scene sound'
 updateScene (ScnSingleplayer scene) sound' _ _       = updateSceneSingleplayer scene sound'
 updateScene (ScnConnect scene) sound' _ _            = updateSceneConnect scene sound'
-updateScene (ScnMainMenu scene) sound' _ _           = updateSceneMainMenu scene sound'
+updateScene (ScnMainMenu scene) sound' opts _        = updateSceneMainMenu scene sound' opts
 updateScene (ScnLevelEditor scene) sound' _ win      = updateSceneLevelEditor scene sound' win
 updateScene (ScnLevelEditorSelect scene) sound' _ _  = updateSceneLevelEditorSelect scene sound'
 updateScene (ScnOptions scene) sound' opts _         = updateSceneOptions scene sound' opts
@@ -146,16 +122,28 @@ updateScene (ScnNewLevel scene) sound' _ _           = updateSceneNewLevel scene
 updateScene ScnExit _ _ _                            = pure ScnExit
 
 updateSceneGame :: SceneGame -> Sounds -> IO Scene
-updateSceneGame game sound' = do 
+updateSceneGame game sound' = do
    isMusic <- isMusicStreamPlaying $ mscMenuBg sound'
+   esc <- isKeyPressed KeyEscape
 
    when isMusic
       $ stopMusicStream $ mscMenuBg sound'
 
-   _camera <- updateCamera (gmPlayerCam game) CameraModeFirstPerson
+   let isPause_ = if esc then not (gmIsPaused game) else gmIsPaused game
+
+   camera_ <- if not isPause_ then
+      updateCamera (gmPlayerCam game) CameraModeFirstPerson
+   else
+      pure $ gmPlayerCam game
+
+   
+
+   when esc
+      $ playSound $ sndClick sound'
 
    pure $ ScnGame game
-      { gmPlayerCam = _camera
+      { gmPlayerCam = camera_
+      , gmIsPaused = isPause_
       }
 
 updateSceneSingleplayer :: SceneSingleplayer -> Sounds -> IO Scene
@@ -194,8 +182,8 @@ updateSceneSingleplayer (SceneSingleplayer lvls sel) sound' = do
 updateSceneConnect :: SceneConnect -> Sounds -> IO Scene
 updateSceneConnect = todo__ "update SceneConnect"
 
-updateSceneMainMenu :: SceneMainMenu -> Sounds -> IO Scene
-updateSceneMainMenu (SceneMainMenu item _ rot msgbox) sound' = do
+updateSceneMainMenu :: SceneMainMenu -> Sounds -> Options -> IO Scene
+updateSceneMainMenu (SceneMainMenu item selected rot msgbox) sound' opts = do
    isMusic <- isMusicStreamPlaying $ mscMenuBg sound'
 
    unless isMusic
@@ -212,30 +200,48 @@ updateSceneMainMenu (SceneMainMenu item _ rot msgbox) sound' = do
             , mmMsgBox = if ok then Nothing else Just msg
             }
 
-      Nothing -> do
-         down  <- isKeyPressed KeyDown
-         up    <- isKeyPressed KeyUp
-         enter <- isKeyPressed KeyEnter
+      Nothing -> if selected
+         then case item of
+            MmiSingleplayer -> do
+               levels <- loadLevels
+               pure $ ScnSingleplayer $ SceneSingleplayer levels 0
 
-         when (down || up)
-            $ playSound $ sndHover sound'
+            MmiConnect      -> pure $ ScnConnect SceneConnect
+            MmiLevelEditor  -> do
+               loadedLevels <- loadLevels
+               pure $ ScnLevelEditorSelect $ SceneLevelEditorSelect loadedLevels 0
 
-         when enter
-            $ playSound $ sndClick sound'
+            MmiOptions      -> pure $ ScnOptions $ SceneOptions
+               { optSelectedItem = OptMusicVolume
+               , optInnerOpts = opts
+               , optFinished = False
+               }
 
-         let mmSelectedItem = item & if up
-               then prevMenuItem
-               else if down
-                  then nextMenuItem
-                  else id
+            MmiExit         -> pure ScnExit
+         else do
+            down  <- isKeyPressed KeyDown
+            up    <- isKeyPressed KeyUp
+            enter <- isKeyPressed KeyEnter
 
-         dt <- getFrameTime
+            when (down || up)
+               $ playSound $ sndHover sound'
 
-         let mmLogoRotation = rot + (32.0 * dt)
-         let mmItemClicked = enter
-         let mmMsgBox = Nothing
+            when enter
+               $ playSound $ sndClick sound'
 
-         return $ ScnMainMenu SceneMainMenu {..}
+            let mmSelectedItem = item & if up
+                  then prevMenuItem
+                  else if down
+                     then nextMenuItem
+                     else id
+
+            dt <- getFrameTime
+
+            let mmLogoRotation = rot + (32.0 * dt)
+            let mmItemClicked = enter
+            let mmMsgBox = Nothing
+
+            return $ ScnMainMenu SceneMainMenu {..}
 
 updateSceneLevelEditor :: SceneLevelEditor -> Sounds -> WindowResources -> IO Scene
 updateSceneLevelEditor (SceneLevelEditor cam lvl (LevelDescr name) meshes _ mode) sound' win = do
@@ -243,7 +249,7 @@ updateSceneLevelEditor (SceneLevelEditor cam lvl (LevelDescr name) meshes _ mode
 
    when isMusic
       $ stopMusicStream $ mscMenuBg sound'
-   
+
    esc   <- isKeyPressed KeyEscape
    shift <- (||) <$> isKeyDown KeyLeftShift <*> isKeyDown KeyRightShift
    f     <- isKeyPressed KeyF
@@ -267,9 +273,9 @@ updateSceneLevelEditor (SceneLevelEditor cam lvl (LevelDescr name) meshes _ mode
       let Dims w _ d = mlvlDims lvl
       let offsetX = negate (fromIntegral (w `div` 2))
       let offsetZ = negate (fromIntegral (d `div` 2))
-      
+
       -- Check collision against ALL chunk meshes with their proper transforms
-      let chunkCollisions = 
+      let chunkCollisions =
             [ let chunkOffsetX = fromIntegral cx * fromIntegral chunkSize
                   chunkOffsetY = fromIntegral cy * fromIntegral chunkSize
                   chunkOffsetZ = fromIntegral cz * fromIntegral chunkSize
@@ -277,26 +283,26 @@ updateSceneLevelEditor (SceneLevelEditor cam lvl (LevelDescr name) meshes _ mode
               in getRayCollisionMesh ray mesh matrix
             | ((cx, cy, cz), mesh) <- HM.toList meshes
             ]
-      
+
       let rc = case filter rayCollision'hit chunkCollisions of
             [] -> RayCollision False 0 (Vector3 0 0 0) (Vector3 0 0 0)
             hits -> minimumBy (comparing rayCollision'distance) hits
-            
+
       let floorSize = fromIntegral (max w d)
       let frc = getRayCollisionQuad ray
             (Vector3 (negate floorSize/2) 0 (floorSize/2))
             (Vector3 (floorSize/2) 0 (floorSize/2))
             (Vector3 (floorSize/2) 0 (negate floorSize/2))
             (Vector3 (negate floorSize/2) 0 (negate floorSize/2))
-      
+
       let collision = case (rayCollision'hit rc, rayCollision'hit frc) of
             (True, True)   -> if rayCollision'distance rc < rayCollision'distance frc then rc else frc
             (True, False)  -> rc
             (False, True)  -> frc
             (False, False) -> rc
-      
+
       let selectedInside
-            | rayCollision'hit collision = 
+            | rayCollision'hit collision =
                let hitPoint = rayCollision'point collision
                    normal = rayCollision'normal collision
                    offset = 0.01
@@ -312,7 +318,7 @@ updateSceneLevelEditor (SceneLevelEditor cam lvl (LevelDescr name) meshes _ mode
             | otherwise = Nothing
 
       let selectedOutside :: Maybe (Int, Int, Int)
-            | rayCollision'hit collision = 
+            | rayCollision'hit collision =
                let hitPoint = rayCollision'point collision
                    normal = rayCollision'normal collision
                    offset = 0.01
@@ -337,7 +343,7 @@ updateSceneLevelEditor (SceneLevelEditor cam lvl (LevelDescr name) meshes _ mode
 
             if mouseLeft then do
                setBlock lvl (fromIntegral localXo, fromIntegral yo, fromIntegral localZo) BSolid
-               
+
                -- Regenerate affected chunk only (use local coordinates)
                let chunkCoord = worldToChunkCoord (fromIntegral localXo, fromIntegral yo, fromIntegral localZo)
                m <- generateChunkMesh lvl chunkCoord
@@ -346,13 +352,13 @@ updateSceneLevelEditor (SceneLevelEditor cam lvl (LevelDescr name) meshes _ mode
 
             else if mouseRight then do
                setBlock lvl (fromIntegral localXi, fromIntegral yi, fromIntegral localZi) BEmpty
-               
+
                -- Regenerate affected chunk only (use local coordinates)
                let chunkCoord = worldToChunkCoord (fromIntegral localXi, fromIntegral yi, fromIntegral localZi)
                m <- generateChunkMesh lvl chunkCoord
                mesh <- uploadMesh m False
                return $ HM.insert chunkCoord mesh meshes
-               
+
             else
                return meshes
 

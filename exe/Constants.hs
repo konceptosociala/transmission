@@ -23,3 +23,15 @@ windowHeight = 768
 
 levelMaxSize :: Integral a => a
 levelMaxSize = 256
+
+playerSize :: Vector3
+playerSize = Vector3 0.6 1.8 0.6
+
+physTimeStep :: Float
+physTimeStep = 1 / 60
+
+gravity :: Float
+gravity = 9.81
+
+moveSpeed :: Float
+moveSpeed = 5.0
